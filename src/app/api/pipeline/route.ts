@@ -5,6 +5,9 @@ import { analyzeKeyword, rankTopicsByRevenue, type KeywordAnalysis } from '@/lib
 import { crawlForKeyword } from '@/lib/crawl/crawler'
 import { generateFeaturedImage, uploadImageToSupabase } from '@/lib/ai/gemini-image'
 
+// Allow up to 120 seconds for content + image generation
+export const maxDuration = 120
+
 const MOONSHOT_BASE_URL = 'https://api.moonshot.ai/v1'
 
 const isConfigured = !!(
@@ -363,16 +366,21 @@ export async function POST(request: NextRequest) {
         const title = extractTitle(content, analysis.suggestedTitle)
         const slug = slugify(title)
 
-        // Generate featured image with Gemini
+        // Generate featured image with Gemini (Nano Banana Pro)
         let featuredImage: string | undefined
         try {
           const imgResult = await generateFeaturedImage(keyword, title, extractExcerpt(content))
           if (imgResult.imageUrl) {
             const uploaded = await uploadImageToSupabase(imgResult.imageUrl, slug)
             featuredImage = uploaded ?? undefined
+            if (!featuredImage) {
+              errors.push(`[이미지] "${keyword}" 업로드 실패`)
+            }
+          } else {
+            errors.push(`[이미지] "${keyword}" 생성 실패: ${imgResult.error ?? 'unknown'}`)
           }
         } catch (imgErr) {
-          console.log(`[pipeline] Image generation failed for "${keyword}":`, imgErr instanceof Error ? imgErr.message : imgErr)
+          errors.push(`[이미지] "${keyword}" 예외: ${imgErr instanceof Error ? imgErr.message : String(imgErr)}`)
         }
 
         let postId = `local-${Date.now()}`
@@ -535,16 +543,21 @@ export async function POST(request: NextRequest) {
           const title = extractTitle(content, analysis.suggestedTitle)
           const slug = slugify(title)
 
-          // Generate featured image with Gemini
+          // Generate featured image with Gemini (Nano Banana Pro)
           let featuredImage: string | undefined
           try {
             const imgResult = await generateFeaturedImage(analysis.keyword, title, extractExcerpt(content))
             if (imgResult.imageUrl) {
               const uploaded = await uploadImageToSupabase(imgResult.imageUrl, slug)
               featuredImage = uploaded ?? undefined
+              if (!featuredImage) {
+                errors.push(`[이미지] "${analysis.keyword}" 업로드 실패`)
+              }
+            } else {
+              errors.push(`[이미지] "${analysis.keyword}" 생성 실패: ${imgResult.error ?? 'unknown'}`)
             }
           } catch (imgErr) {
-            console.log(`[pipeline] Image generation failed for "${analysis.keyword}":`, imgErr instanceof Error ? imgErr.message : imgErr)
+            errors.push(`[이미지] "${analysis.keyword}" 예외: ${imgErr instanceof Error ? imgErr.message : String(imgErr)}`)
           }
 
           let postId = `local-${Date.now()}-${Math.random().toString(36).slice(2)}`
