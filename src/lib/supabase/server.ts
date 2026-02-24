@@ -1,4 +1,5 @@
 import { createServerClient } from '@supabase/ssr'
+import { createClient as createSupabaseClient } from '@supabase/supabase-js'
 import { cookies } from 'next/headers'
 import type { Database } from '@/types/database'
 
@@ -30,11 +31,9 @@ export async function createClient() {
 
 /**
  * Public client for read-only queries on blog-facing pages.
- * Uses @supabase/supabase-js directly (no cookie dependency)
- * so it works reliably in ISR/SSG contexts.
+ * Works reliably in ISR/SSG and serverless contexts.
  */
 export function createPublicClient() {
-  const { createClient: createSupabaseClient } = require('@supabase/supabase-js')
   return createSupabaseClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
@@ -46,7 +45,6 @@ export function createPublicClient() {
  * Use ONLY in admin API routes (POST/PATCH/DELETE on posts, etc.)
  */
 export function createAdminClient() {
-  const { createClient: createSupabaseClient } = require('@supabase/supabase-js')
   return createSupabaseClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!
