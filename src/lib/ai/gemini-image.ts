@@ -110,7 +110,9 @@ export async function uploadImageToSupabase(
     const base64Data = matches[2]
     const extension = mimeType.split('/')[1] || 'png'
     const buffer = Buffer.from(base64Data, 'base64')
-    const fileName = `posts/${slug}-${Date.now()}.${extension}`
+    // Supabase Storage requires ASCII-only keys; strip non-ASCII chars from slug
+    const safeSlug = slug.replace(/[^\w-]/g, '').replace(/-+/g, '-').slice(0, 60) || 'post'
+    const fileName = `posts/${safeSlug}-${Date.now()}.${extension}`
 
     console.log(`[gemini-image] Uploading ${buffer.length} bytes as ${fileName}`)
 
