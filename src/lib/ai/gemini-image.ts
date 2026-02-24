@@ -1,7 +1,10 @@
 // Gemini Image Generation for Blog Featured Images
-// Uses Gemini's imagen model to generate blog post featured images
+// Uses Gemini 3 Pro Image (Nano Banana Pro) for card-news style thumbnails
+
+import { createAdminClient } from '@/lib/supabase/server'
 
 const GEMINI_API_BASE = 'https://generativelanguage.googleapis.com/v1beta'
+const IMAGE_MODEL = 'gemini-3-pro-image-preview'
 
 interface ImageGenerationResult {
   imageUrl: string | null
@@ -9,7 +12,7 @@ interface ImageGenerationResult {
 }
 
 /**
- * Generate a featured image for a blog post using Gemini's image generation.
+ * Generate a card-news style thumbnail for a blog post using Gemini 3 Pro Image (Nano Banana Pro).
  * Returns a base64 data URL or null if generation fails.
  */
 export async function generateFeaturedImage(
@@ -23,11 +26,10 @@ export async function generateFeaturedImage(
   }
 
   try {
-    // Create a descriptive prompt for the image
     const imagePrompt = buildImagePrompt(keyword, title, excerpt)
 
     const response = await fetch(
-      `${GEMINI_API_BASE}/models/gemini-2.0-flash-exp:generateContent?key=${apiKey}`,
+      `${GEMINI_API_BASE}/models/${IMAGE_MODEL}:generateContent?key=${apiKey}`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -56,16 +58,18 @@ export async function generateFeaturedImage(
 
     const data = await response.json()
 
-    // Extract image from response
+    // Extract image from response - check both inline_data and inlineData formats
     const parts = data.candidates?.[0]?.content?.parts ?? []
     for (const part of parts) {
-      if (part.inlineData?.mimeType?.startsWith('image/')) {
-        const base64 = part.inlineData.data
-        const mimeType = part.inlineData.mimeType
+      const inlineData = part.inlineData ?? part.inline_data
+      if (inlineData?.mimeType?.startsWith('image/') || inlineData?.mime_type?.startsWith('image/')) {
+        const base64 = inlineData.data
+        const mimeType = inlineData.mimeType ?? inlineData.mime_type
         return { imageUrl: `data:${mimeType};base64,${base64}` }
       }
     }
 
+    console.error('[gemini-image] No image in response. Parts:', JSON.stringify(parts.map((p: any) => Object.keys(p))))
     return { imageUrl: null, error: 'No image in Gemini response' }
   } catch (err) {
     console.error('[gemini-image] Generation failed:', err instanceof Error ? err.message : err)
@@ -75,6 +79,7 @@ export async function generateFeaturedImage(
 
 /**
  * Upload a base64 image to Supabase Storage and return the public URL.
+ * Uses admin client to bypass RLS for reliable uploads in API routes.
  */
 export async function uploadImageToSupabase(
   base64DataUrl: string,
@@ -82,13 +87,13 @@ export async function uploadImageToSupabase(
 ): Promise<string | null> {
   const isConfigured = !!(
     process.env.NEXT_PUBLIC_SUPABASE_URL &&
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+    process.env.SUPABASE_SERVICE_ROLE_KEY
   )
   if (!isConfigured) return null
 
   try {
-    const { createClient } = await import('@/lib/supabase/server')
-    const supabase = await createClient() as any
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const supabase = createAdminClient() as any
 
     // Parse base64 data URL
     const matches = base64DataUrl.match(/^data:(.+);base64,(.+)$/)
@@ -109,8 +114,7 @@ export async function uploadImageToSupabase(
 
     if (error) {
       console.error('[gemini-image] Upload error:', error.message)
-      // Return the base64 data URL as fallback
-      return base64DataUrl
+      return null
     }
 
     // Get public URL
@@ -118,28 +122,28 @@ export async function uploadImageToSupabase(
       .from('images')
       .getPublicUrl(data.path)
 
-    return urlData?.publicUrl ?? base64DataUrl
+    return urlData?.publicUrl ?? null
   } catch (err) {
     console.error('[gemini-image] Upload failed:', err instanceof Error ? err.message : err)
-    // Return base64 as fallback
-    return base64DataUrl
+    return null
   }
 }
 
 function buildImagePrompt(keyword: string, title: string, excerpt: string): string {
-  return `Create a professional, clean blog featured image for a Korean blog post.
+  return `Design a Korean-style card news thumbnail image for a blog post.
 
-Topic: ${keyword}
-Title: ${title}
-Summary: ${excerpt}
+Topic: "${keyword}"
+Title: "${title}"
 
-Requirements:
-- Modern, professional illustration style
-- Clean and minimalist design
-- Suitable as a blog header/featured image
-- No text or letters in the image
-- Warm, inviting color palette
-- 16:9 aspect ratio composition
-- Abstract or conceptual representation of the topic
-- High quality, visually appealing`
+Design requirements:
+- Card news (카드뉴스) style: bold, eye-catching, information-rich visual
+- Include the main keyword "${keyword}" as large Korean text overlay in the center
+- Use a gradient or solid color background (professional blues, purples, or warm tones)
+- Add subtle related icons or illustrations around the text
+- Modern, clean typography layout like popular Korean blog thumbnails
+- 16:9 aspect ratio (landscape orientation)
+- High contrast between text and background for readability
+- Professional and trustworthy design aesthetic
+- Style similar to Naver blog or Korean news card thumbnails
+- The text should be clearly legible and be the focal point`
 }
