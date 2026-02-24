@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils/cn";
@@ -11,6 +11,7 @@ const navItems = [
   { href: "/admin/crawl", label: "크롤링 관리", emoji: "🔍" },
   { href: "/admin/generate", label: "AI 글 생성", emoji: "🤖" },
   { href: "/admin/contents", label: "콘텐츠 관리", emoji: "📝" },
+  { href: "/admin/schedule", label: "스케줄", emoji: "📅" },
   { href: "/admin/analytics", label: "분석", emoji: "📈" },
   { href: "/admin/settings", label: "설정", emoji: "⚙️" },
 ];

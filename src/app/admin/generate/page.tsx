@@ -41,12 +41,6 @@ const tones = [
   { id: "informative", label: "정보성" },
 ];
 
-const providerBadgeColor: Record<string, string> = {
-  "GPT-4o": "bg-emerald-100 text-emerald-700",
-  "Claude": "bg-amber-100 text-amber-700",
-  "Gemini": "bg-blue-100 text-blue-700",
-  "Kimi": "bg-indigo-100 text-indigo-700",
-};
 
 const providerModelMap: Record<string, string> = {
   openai: "gpt-4o",
@@ -76,6 +70,9 @@ export default function GeneratePage() {
 
   const [generatedContent, setGeneratedContent] = useState("");
   const [generateError, setGenerateError] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [saveSuccess, setSaveSuccess] = useState(false);
+  const [savedPostId, setSavedPostId] = useState<string | null>(null);
 
   const [crawlSources, setCrawlSources] = useState<CrawlSource[]>([]);
   const [crawledItems, setCrawledItems] = useState<CrawledItem[]>([]);
@@ -125,6 +122,8 @@ export default function GeneratePage() {
     setGenerating(true);
     setGeneratedContent("");
     setGenerateError("");
+    setSaveSuccess(false);
+    setSavedPostId(null);
 
     try {
       const selectedItem = crawledItems.find(i => i.id === selectedItemId);
@@ -157,6 +156,79 @@ export default function GeneratePage() {
       setGenerateError(err instanceof Error ? err.message : "네트워크 오류가 발생했습니다.");
     } finally {
       setGenerating(false);
+    }
+  };
+
+  const extractTitleFromContent = (content: string): string => {
+    // Try to find the first markdown heading (# or ##)
+    const h1Match = content.match(/^#\s+(.+)$/m);
+    if (h1Match) return h1Match[1].trim();
+
+    const h2Match = content.match(/^##\s+(.+)$/m);
+    if (h2Match) return h2Match[1].trim();
+
+    // Fallback: use first line or truncated content
+    const firstLine = content.split('\n')[0].trim();
+    return firstLine.substring(0, 100) || "제목 없음";
+  };
+
+  const extractExcerptFromContent = (content: string): string => {
+    // Remove markdown headings
+    const withoutHeadings = content.replace(/^#+\s+.+$/gm, '').trim();
+    // Get first paragraph
+    const firstPara = withoutHeadings.split('\n\n')[0].trim();
+    // Limit to 200 characters
+    return firstPara.substring(0, 200) + (firstPara.length > 200 ? '...' : '');
+  };
+
+  const handleSave = async () => {
+    if (!generatedContent) return;
+
+    setSaving(true);
+    setGenerateError("");
+
+    try {
+      const title = extractTitleFromContent(generatedContent);
+      const excerpt = extractExcerptFromContent(generatedContent);
+      const slug = title
+        .toLowerCase()
+        .replace(/[^\w\sㄱ-ㅎㅏ-ㅣ가-힣-]/g, '')
+        .replace(/[\s_-]+/g, '-')
+        .replace(/^-+|-+$/g, '')
+        .substring(0, 100);
+
+      // Find category_id if we have categories loaded
+      const category = categories.find(c => c.name === selectedCategory);
+
+      const res = await fetch("/api/posts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title,
+          slug,
+          content: generatedContent,
+          excerpt,
+          status: 'draft',
+          ai_provider: selectedProvider,
+          ai_model: providerModelMap[selectedProvider],
+          seo_keywords: seoKeywords || null,
+          category_id: category?.id || null,
+        }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        setGenerateError(data.error || "포스트 저장에 실패했습니다.");
+        return;
+      }
+
+      setSaveSuccess(true);
+      setSavedPostId(data.post.id);
+    } catch (err) {
+      setGenerateError(err instanceof Error ? err.message : "저장 중 오류가 발생했습니다.");
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -508,12 +580,57 @@ export default function GeneratePage() {
                 {generateError}
               </div>
             )}
-            {generatedContent ? (
-              <div className="bg-gray-50 rounded-md border border-gray-200 p-4 max-h-[500px] overflow-y-auto">
-                <div className="prose prose-sm max-w-none text-gray-800 whitespace-pre-wrap">
-                  {generatedContent}
+            {saveSuccess && savedPostId && (
+              <div className="mb-3 px-3 py-2 rounded-lg bg-green-50 border border-green-200 text-green-700 text-sm space-y-2">
+                <p className="font-medium">✓ 저장 완료!</p>
+                <div className="flex gap-2">
+                  <a
+                    href={`/admin/posts/${savedPostId}`}
+                    className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium rounded-md bg-green-600 text-white hover:bg-green-700 transition-colors"
+                  >
+                    편집하기 →
+                  </a>
+                  <button
+                    onClick={() => {
+                      setGeneratedContent("");
+                      setSaveSuccess(false);
+                      setSavedPostId(null);
+                      setStep(1);
+                    }}
+                    className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium rounded-md border border-green-300 text-green-700 hover:bg-green-50 transition-colors"
+                  >
+                    새 글 생성
+                  </button>
                 </div>
               </div>
+            )}
+            {generatedContent ? (
+              <>
+                <div className="bg-gray-50 rounded-md border border-gray-200 p-4 max-h-[500px] overflow-y-auto mb-3">
+                  <div className="prose prose-sm max-w-none text-gray-800 whitespace-pre-wrap">
+                    {generatedContent}
+                  </div>
+                </div>
+                {!saveSuccess && (
+                  <button
+                    onClick={handleSave}
+                    disabled={saving}
+                    className="w-full py-2.5 text-sm font-semibold rounded-md bg-green-600 text-white hover:bg-green-700 disabled:opacity-60 transition-colors inline-flex items-center justify-center gap-2"
+                  >
+                    {saving ? (
+                      <>
+                        <svg className="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                        </svg>
+                        저장 중...
+                      </>
+                    ) : (
+                      <><span>💾</span> 저장하기</>
+                    )}
+                  </button>
+                )}
+              </>
             ) : generating ? (
               <div className="bg-gray-50 rounded-md border border-dashed border-gray-300 min-h-[200px] flex items-center justify-center">
                 <div className="text-center">

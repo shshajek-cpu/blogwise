@@ -87,6 +87,11 @@ interface WebSiteJsonLdOptions {
   description?: string
 }
 
+interface BreadcrumbItem {
+  name: string
+  url: string
+}
+
 /**
  * Generates JSON-LD structured data for an Article or WebSite.
  */
@@ -141,5 +146,23 @@ export function generateJsonLd(
       },
       'query-input': 'required name=search_term_string',
     },
+  }
+}
+
+/**
+ * Generates BreadcrumbList JSON-LD structured data.
+ */
+export function generateBreadcrumbJsonLd(
+  items: BreadcrumbItem[]
+): Record<string, unknown> {
+  return {
+    '@context': 'https://schema.org',
+    '@type': 'BreadcrumbList',
+    itemListElement: items.map((item, index) => ({
+      '@type': 'ListItem',
+      position: index + 1,
+      name: item.name,
+      item: `${SITE_URL}${item.url}`,
+    })),
   }
 }

@@ -9,16 +9,13 @@ import { Post } from "@/components/blog/PostCard";
 
 function SearchResults() {
   const searchParams = useSearchParams();
-  const initialQuery = searchParams.get("q") ?? "";
-  const [query, setQuery] = useState(initialQuery);
+  const query = searchParams.get("q") ?? "";
   const [results, setResults] = useState<Post[]>([]);
   const [searched, setSearched] = useState(false);
 
   useEffect(() => {
-    const q = searchParams.get("q") ?? "";
-    setQuery(q);
-    if (q.trim()) {
-      fetch(`/api/search?q=${encodeURIComponent(q)}`)
+    if (query.trim()) {
+      fetch(`/api/search?q=${encodeURIComponent(query)}`)
         .then((res) => res.json())
         .then((data) => {
           setResults(data.posts ?? []);
@@ -32,7 +29,7 @@ function SearchResults() {
       setResults([]);
       setSearched(false);
     }
-  }, [searchParams]);
+  }, [query]);
 
   return (
     <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">

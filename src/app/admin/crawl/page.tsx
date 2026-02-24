@@ -154,6 +154,14 @@ export default function CrawlPage() {
   const [runAllCrawling, setRunAllCrawling] = useState(false);
   const [lastFetched, setLastFetched] = useState<Date | null>(null);
   const [keywordTypeFilter, setKeywordTypeFilter] = useState<KeywordTypeFilter>("all");
+  const [selectedKeywords, setSelectedKeywords] = useState<Set<string>>(new Set());
+  const [batchGenerating, setBatchGenerating] = useState(false);
+  const [batchProgress, setBatchProgress] = useState({ current: 0, total: 0, currentKeyword: "" });
+  const [genTone, setGenTone] = useState<string>("casual");
+  const [genWordCount, setGenWordCount] = useState<number>(2500);
+  const [genPersona, setGenPersona] = useState<string>("");
+  const [genCategoryStyle, setGenCategoryStyle] = useState<string>("");
+  const [showGenOptions, setShowGenOptions] = useState(false);
 
   // ── Fetch sources ──────────────────────────────────────────────────────────
   const fetchSources = useCallback(async () => {
@@ -339,7 +347,14 @@ export default function CrawlPage() {
       const res = await fetch("/api/pipeline", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ mode: "manual", keyword }),
+        body: JSON.stringify({
+          mode: "manual",
+          keyword,
+          tone: genTone || undefined,
+          wordCount: genWordCount,
+          persona: genPersona || undefined,
+          categoryStyle: genCategoryStyle || undefined,
+        }),
       });
 
       const data = await res.json();
@@ -373,6 +388,99 @@ export default function CrawlPage() {
     }
   };
 
+  // ── Keyword selection helpers ──────────────────────────────────────────────
+  const toggleKeyword = (keyword: string) => {
+    setSelectedKeywords((prev) => {
+      const next = new Set(prev);
+      if (next.has(keyword)) next.delete(keyword);
+      else next.add(keyword);
+      return next;
+    });
+  };
+
+  const filteredTrends = trends.filter((t) => {
+    if (keywordTypeFilter === "all") return true;
+    if (keywordTypeFilter === "trending") return !t.keywordType || t.keywordType === "trending";
+    return t.keywordType === keywordTypeFilter;
+  });
+
+  const toggleAllFiltered = () => {
+    const allFilteredKeywords = filteredTrends.map((t) => t.keyword);
+    const allSelected = allFilteredKeywords.every((k) => selectedKeywords.has(k));
+    if (allSelected) {
+      setSelectedKeywords((prev) => {
+        const next = new Set(prev);
+        allFilteredKeywords.forEach((k) => next.delete(k));
+        return next;
+      });
+    } else {
+      setSelectedKeywords((prev) => {
+        const next = new Set(prev);
+        allFilteredKeywords.forEach((k) => next.add(k));
+        return next;
+      });
+    }
+  };
+
+  // ── Pipeline: batch generate for selected keywords ──────────────────────
+  const runBatchForSelected = async () => {
+    const keywords = Array.from(selectedKeywords);
+    if (keywords.length === 0) { alert("키워드를 선택해주세요."); return; }
+    if (!confirm(`선택한 ${keywords.length}개 키워드로 글을 생성하시겠습니까?`)) return;
+
+    setBatchGenerating(true);
+    setBatchProgress({ current: 0, total: keywords.length, currentKeyword: "" });
+    setPipelineStep("generate");
+
+    const allItems: { title: string; keyword: string; success: boolean }[] = [];
+    const allErrors: string[] = [];
+
+    for (let i = 0; i < keywords.length; i++) {
+      const kw = keywords[i];
+      setBatchProgress({ current: i + 1, total: keywords.length, currentKeyword: kw });
+
+      try {
+        const res = await fetch("/api/pipeline", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            mode: "manual",
+            keyword: kw,
+            tone: genTone || undefined,
+            wordCount: genWordCount,
+            persona: genPersona || undefined,
+            categoryStyle: genCategoryStyle || undefined,
+          }),
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          allErrors.push(`"${kw}": ${data.error ?? "API 오류"}`);
+          allItems.push({ title: kw, keyword: kw, success: false });
+        } else {
+          const posts = data.posts ?? [];
+          for (const p of posts) {
+            allItems.push({ title: p.title, keyword: p.keyword, success: true });
+          }
+        }
+      } catch (err) {
+        allErrors.push(`"${kw}": ${err instanceof Error ? err.message : "네트워크 오류"}`);
+        allItems.push({ title: kw, keyword: kw, success: false });
+      }
+    }
+
+    setPipelineStep("done");
+    setPipelineResult({
+      executedAt: new Date().toLocaleString("ko-KR"),
+      contentGenerated: allItems.filter((i) => i.success).length,
+      errorCount: allErrors.length,
+      errorMessages: allErrors,
+      items: allItems,
+    });
+    setSelectedKeywords(new Set());
+    setBatchGenerating(false);
+    setTimeout(() => { setPipelineStep("idle"); }, 3000);
+  };
+
   // ── Pipeline: auto mode ────────────────────────────────────────────────────
   const runAutoPipeline = async () => {
     setPipelineRunning(true);
@@ -385,7 +493,14 @@ export default function CrawlPage() {
       const res = await fetch("/api/pipeline", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ mode: "auto", count: 3 }),
+        body: JSON.stringify({
+          mode: "auto",
+          count: 3,
+          tone: genTone || undefined,
+          wordCount: genWordCount,
+          persona: genPersona || undefined,
+          categoryStyle: genCategoryStyle || undefined,
+        }),
       });
 
       const data = await res.json();
@@ -532,13 +647,157 @@ export default function CrawlPage() {
           트렌딩 키워드를 자동으로 찾고, 해당 키워드의 인기 콘텐츠를 크롤링하여 벤치마킹한 후, AI가 더 나은 글을 생성합니다.
         </p>
 
-        <div className="flex items-center gap-3 mb-4">
+        {/* Generation Options Panel */}
+        <div className="mb-4">
+          <button
+            onClick={() => setShowGenOptions(!showGenOptions)}
+            className="flex items-center gap-2 text-xs font-medium text-gray-600 hover:text-gray-800 transition-colors mb-2"
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              className={cn("w-4 h-4 transition-transform", showGenOptions && "rotate-90")}
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              strokeWidth={2}
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+            </svg>
+            <span className="flex items-center gap-1.5">
+              <span>⚙️</span>
+              생성 옵션
+            </span>
+          </button>
+
+          {showGenOptions && (
+            <div className="rounded-lg border border-gray-200 bg-gray-50 p-4 space-y-4">
+              {/* Tone */}
+              <div>
+                <label className="block text-xs font-medium text-gray-700 mb-2">글 톤</label>
+                <div className="flex items-center gap-2 flex-wrap">
+                  {[
+                    { value: "professional", label: "전문적" },
+                    { value: "casual", label: "친근한" },
+                    { value: "educational", label: "교육적" },
+                    { value: "informative", label: "정보전달" },
+                  ].map((tone) => (
+                    <button
+                      key={tone.value}
+                      onClick={() => setGenTone(tone.value)}
+                      className={cn(
+                        "px-3 py-1.5 text-xs font-medium rounded-full transition-all border",
+                        genTone === tone.value
+                          ? "bg-primary-600 text-white border-primary-600"
+                          : "bg-white text-gray-600 border-gray-300 hover:border-primary-400"
+                      )}
+                    >
+                      {tone.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Word Count */}
+              <div>
+                <label className="block text-xs font-medium text-gray-700 mb-2">
+                  글 길이 <span className="text-primary-600 font-semibold">{genWordCount}자</span>
+                </label>
+                <div className="flex items-center gap-3">
+                  <input
+                    type="range"
+                    min="1000"
+                    max="5000"
+                    step="500"
+                    value={genWordCount}
+                    onChange={(e) => setGenWordCount(Number(e.target.value))}
+                    className="flex-1 h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-primary-600"
+                  />
+                  <div className="flex items-center gap-1.5">
+                    {[
+                      { value: 1500, label: "짧게" },
+                      { value: 2500, label: "보통" },
+                      { value: 4000, label: "길게" },
+                    ].map((preset) => (
+                      <button
+                        key={preset.value}
+                        onClick={() => setGenWordCount(preset.value)}
+                        className={cn(
+                          "px-2 py-1 text-[10px] font-medium rounded transition-colors",
+                          genWordCount === preset.value
+                            ? "bg-primary-600 text-white"
+                            : "bg-white text-gray-500 hover:text-gray-700 border border-gray-300"
+                        )}
+                      >
+                        {preset.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {/* Category Style */}
+              <div>
+                <label className="block text-xs font-medium text-gray-700 mb-2">카테고리 스타일</label>
+                <select
+                  value={genCategoryStyle}
+                  onChange={(e) => setGenCategoryStyle(e.target.value)}
+                  className="w-full max-w-xs px-3 py-1.5 text-xs rounded-md border border-gray-300 bg-white focus:outline-none focus:ring-2 focus:ring-primary-500"
+                >
+                  <option value="">자동 감지</option>
+                  <option value="금융">금융</option>
+                  <option value="건강">건강</option>
+                  <option value="부동산">부동산</option>
+                  <option value="정부지원">정부지원</option>
+                  <option value="IT/기술">IT/기술</option>
+                  <option value="생활정보">생활정보</option>
+                  <option value="교육">교육</option>
+                  <option value="여행">여행</option>
+                </select>
+              </div>
+
+              {/* Persona */}
+              <div>
+                <label className="block text-xs font-medium text-gray-700 mb-2">페르소나</label>
+                <input
+                  type="text"
+                  value={genPersona}
+                  onChange={(e) => setGenPersona(e.target.value)}
+                  placeholder="비워두면 자동 로테이션됩니다"
+                  className="w-full px-3 py-1.5 text-xs rounded-md border border-gray-300 bg-white focus:outline-none focus:ring-2 focus:ring-primary-500"
+                />
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Batch progress indicator */}
+        {batchGenerating && (
+          <div className="mb-4 px-4 py-3 rounded-lg bg-indigo-50 border border-indigo-100">
+            <div className="flex items-center gap-2 mb-2">
+              <span className="inline-block h-4 w-4 rounded-full border-2 border-indigo-500 border-t-transparent animate-spin" />
+              <span className="text-sm font-medium text-indigo-700">
+                선택 키워드 생성 중... ({batchProgress.current}/{batchProgress.total})
+              </span>
+            </div>
+            <div className="w-full bg-indigo-100 rounded-full h-2">
+              <div
+                className="bg-indigo-500 h-2 rounded-full transition-all duration-300"
+                style={{ width: `${batchProgress.total > 0 ? (batchProgress.current / batchProgress.total) * 100 : 0}%` }}
+              />
+            </div>
+            {batchProgress.currentKeyword && (
+              <p className="text-xs text-indigo-600 mt-1">현재: &quot;{batchProgress.currentKeyword}&quot;</p>
+            )}
+          </div>
+        )}
+
+        <div className="flex items-center gap-3 mb-4 flex-wrap">
           <button
             onClick={runAutoPipeline}
-            disabled={pipelineRunning}
+            disabled={pipelineRunning || batchGenerating}
             className="inline-flex items-center gap-2 px-4 py-2.5 text-sm font-medium rounded-md bg-primary-600 text-white hover:bg-primary-700 transition-colors disabled:opacity-60"
           >
-            {pipelineRunning ? (
+            {pipelineRunning && !batchGenerating ? (
               <>
                 <span className="inline-block h-4 w-4 rounded-full border-2 border-white border-t-transparent animate-spin" />
                 파이프라인 실행 중...
@@ -547,8 +806,26 @@ export default function CrawlPage() {
               <>⚡ 원클릭 자동 생성</>
             )}
           </button>
+          {selectedKeywords.size > 0 && (
+            <button
+              onClick={runBatchForSelected}
+              disabled={pipelineRunning || batchGenerating}
+              className="inline-flex items-center gap-2 px-4 py-2.5 text-sm font-medium rounded-md bg-indigo-600 text-white hover:bg-indigo-700 transition-colors disabled:opacity-60"
+            >
+              {batchGenerating ? (
+                <>
+                  <span className="inline-block h-4 w-4 rounded-full border-2 border-white border-t-transparent animate-spin" />
+                  생성 중...
+                </>
+              ) : (
+                <>🎯 선택한 {selectedKeywords.size}개 키워드로 생성</>
+              )}
+            </button>
+          )}
           <span className="text-xs text-gray-400">
-            상위 3개 트렌딩 키워드로 자동 실행됩니다
+            {selectedKeywords.size > 0
+              ? `${selectedKeywords.size}개 선택됨 — 아래 테이블에서 키워드를 선택/해제하세요`
+              : "아래 테이블에서 키워드를 선택하거나, 자동 생성을 사용하세요"}
           </span>
         </div>
 
@@ -678,6 +955,15 @@ export default function CrawlPage() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="bg-gray-50 border-b border-gray-200">
+                  <th className="px-4 py-3 w-10">
+                    <input
+                      type="checkbox"
+                      checked={filteredTrends.length > 0 && filteredTrends.every((t) => selectedKeywords.has(t.keyword))}
+                      onChange={toggleAllFiltered}
+                      className="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                      title="전체 선택/해제"
+                    />
+                  </th>
                   <th className="text-left px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider w-8">#</th>
                   <th className="text-left px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">키워드</th>
                   <th className="text-left px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">유형</th>
@@ -689,16 +975,27 @@ export default function CrawlPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
-                {trends
-                  .filter((t) => {
-                    if (keywordTypeFilter === "all") return true;
-                    if (keywordTypeFilter === "trending") return !t.keywordType || t.keywordType === "trending";
-                    return t.keywordType === keywordTypeFilter;
-                  })
+                {filteredTrends
                   .map((topic, idx) => {
                     const typeBadge = keywordTypeBadge[topic.keywordType ?? "trending"] ?? keywordTypeBadge.trending;
+                    const isSelected = selectedKeywords.has(topic.keyword);
                     return (
-                  <tr key={topic.keyword} className="hover:bg-gray-50 transition-colors group">
+                  <tr
+                    key={topic.keyword}
+                    className={cn(
+                      "hover:bg-gray-50 transition-colors group cursor-pointer",
+                      isSelected && "bg-indigo-50/50"
+                    )}
+                    onClick={() => toggleKeyword(topic.keyword)}
+                  >
+                    <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
+                      <input
+                        type="checkbox"
+                        checked={isSelected}
+                        onChange={() => toggleKeyword(topic.keyword)}
+                        className="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                      />
+                    </td>
                     <td className="px-6 py-3 text-gray-400 text-xs">{idx + 1}</td>
                     <td className="px-6 py-3">
                       <div>
@@ -825,7 +1122,7 @@ export default function CrawlPage() {
                       </button>
                     </td>
                     <td className="px-6 py-4 text-gray-500 text-xs hidden md:table-cell">{source.lastCrawled || "—"}</td>
-                    <td className="px-6 py-4 text-gray-700 font-medium hidden sm:table-cell">{source.itemCount.toLocaleString()}</td>
+                    <td className="px-6 py-4 text-gray-700 font-medium hidden sm:table-cell">{(source.itemCount ?? 0).toLocaleString()}</td>
                     <td className="px-6 py-4 text-right">
                       <div className="flex items-center justify-end gap-2">
                         <button

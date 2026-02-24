@@ -6,6 +6,7 @@ import ShareButtons from "@/components/blog/ShareButtons";
 import TableOfContents from "@/components/blog/TableOfContents";
 import PageViewTracker from "@/components/blog/PageViewTracker";
 import { getPostBySlug, getRelatedPosts, trackPageView } from "@/lib/supabase/queries";
+import { generateJsonLd, generateBreadcrumbJsonLd } from "@/lib/utils/seo";
 
 export const dynamic = 'force-dynamic';
 
@@ -199,12 +200,40 @@ export default async function PostDetailPage({ params }: PageProps) {
     day: "numeric",
   });
 
+  // Generate JSON-LD structured data
+  const articleJsonLd = generateJsonLd('Article', {
+    title: post.title,
+    description: post.excerpt,
+    url: `/posts/${post.slug}`,
+    image: post.thumbnail,
+    publishedAt: post.publishedAt,
+    modifiedAt: post.publishedAt,
+    authorName: 'Blogwise',
+  });
+
+  const breadcrumbJsonLd = generateBreadcrumbJsonLd([
+    { name: '홈', url: '/' },
+    { name: post.category.name, url: `/category/${post.category.slug}` },
+    { name: post.title, url: `/posts/${post.slug}` },
+  ]);
+
   return (
-    <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-      {/* Top Banner Ad */}
-      <div className="mb-8 flex justify-center">
-        <AdSlot position="top-banner" />
-      </div>
+    <>
+      {/* JSON-LD Structured Data */}
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(articleJsonLd) }}
+      />
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(breadcrumbJsonLd) }}
+      />
+
+      <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {/* Top Banner Ad */}
+        <div className="mb-8 flex justify-center">
+          <AdSlot position="top-banner" />
+        </div>
 
       <div className="flex flex-col lg:flex-row gap-10">
         {/* Article */}
@@ -294,6 +323,7 @@ export default async function PostDetailPage({ params }: PageProps) {
           </div>
         </aside>
       </div>
-    </div>
+      </div>
+    </>
   );
 }

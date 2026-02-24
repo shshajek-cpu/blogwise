@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient, createAdminClient } from '@/lib/supabase/server'
 import { getAllTrends } from '@/lib/crawl/trends'
-import { analyzeKeyword, rankTopicsByRevenue } from '@/lib/crawl/analyzer'
+import { analyzeKeyword, rankTopicsByRevenue, type KeywordAnalysis } from '@/lib/crawl/analyzer'
 import { crawlForKeyword } from '@/lib/crawl/crawler'
 import { generateFeaturedImage, uploadImageToSupabase } from '@/lib/ai/gemini-image'
 
@@ -12,23 +12,103 @@ const isConfigured = !!(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 )
 
-function buildSystemPrompt(wordCount: number, seoKeyword: string): string {
-  // Rotate writing persona based on keyword for variety
-  const personas = [
-    '10년 경력의 전문 블로거',
-    '해당 분야에서 실무 경험이 풍부한 현직자',
-    '독자와 소통하는 것을 좋아하는 칼럼니스트',
-    '쉬운 설명을 잘하는 교육 콘텐츠 전문가',
-  ]
-  const hash = seoKeyword.split('').reduce((acc, c) => acc + c.charCodeAt(0), 0)
-  const persona = personas[hash % personas.length]
+type ToneType = 'professional' | 'casual' | 'educational' | 'informative'
 
-  return `당신은 ${persona}입니다. 자연스러운 한국어 블로그 글을 작성하세요.
+interface SystemPromptOptions {
+  wordCount?: number
+  tone?: ToneType
+  persona?: string
+  categoryStyle?: string
+}
+
+function buildSystemPrompt(
+  seoKeyword: string,
+  options: SystemPromptOptions = {}
+): string {
+  const {
+    wordCount = 2500,
+    tone = 'casual',
+    persona: customPersona,
+    categoryStyle
+  } = options
+
+  // Tone mapping to Korean descriptions
+  const toneDescriptions: Record<ToneType, string> = {
+    professional: '전문적이고 권위 있는 톤',
+    casual: '친근하고 대화하듯 편안한 톤',
+    educational: '쉽게 설명하는 교육적인 톤',
+    informative: '객관적이고 정보 전달 위주의 톤',
+  }
+
+  // Rotate writing persona based on keyword for variety (unless custom persona provided)
+  let selectedPersona: string
+  if (customPersona) {
+    selectedPersona = customPersona
+  } else {
+    const personas = [
+      '10년 경력의 전문 블로거',
+      '해당 분야에서 실무 경험이 풍부한 현직자',
+      '독자와 소통하는 것을 좋아하는 칼럼니스트',
+      '쉬운 설명을 잘하는 교육 콘텐츠 전문가',
+    ]
+    const hash = seoKeyword.split('').reduce((acc, c) => acc + c.charCodeAt(0), 0)
+    selectedPersona = personas[hash % personas.length]
+  }
+
+  // Category-specific writing guidelines
+  const categoryGuidelines: Record<string, string> = {
+    '금융': `
+[금융 카테고리 특화 가이드라인]
+- 구체적 금액, 금리, 조건 수치를 반드시 포함하세요.
+- 신뢰감 있는 톤을 유지하며, 정확한 정보 전달이 최우선입니다.
+- 금융 용어는 쉽게 풀어서 설명하되, 전문성을 잃지 마세요.
+- 주의사항, 리스크, 제한 조건을 명확히 안내하세요.`,
+
+    '건강': `
+[건강 카테고리 특화 가이드라인]
+- 증상 → 원인 → 해결법 구조로 작성하세요.
+- 의학 용어를 쉽게 풀어쓰되, 정확성을 유지하세요.
+- 개인차가 있을 수 있음을 명시하고, 전문의 상담을 권장하세요.
+- 근거 있는 정보만 제공하고, 과장된 표현을 피하세요.`,
+
+    '부동산': `
+[부동산 카테고리 특화 가이드라인]
+- 절차, 서류, 비용을 구체적으로 안내하세요.
+- 실무 경험을 바탕으로 한 톤을 사용하세요.
+- 시기별, 지역별 차이점을 언급하세요.
+- 세금, 수수료 등 숨은 비용도 명확히 안내하세요.`,
+
+    '정부지원': `
+[정부지원 카테고리 특화 가이드라인]
+- 자격조건, 신청방법, 기간, 금액을 반드시 포함하세요.
+- 단계별로 명확하게 설명하세요 (1단계, 2단계...).
+- 필요 서류 목록을 구체적으로 제시하세요.
+- 신청 기한, 마감일을 명확히 표시하세요.`,
+
+    'IT/기술': `
+[IT/기술 카테고리 특화 가이드라인]
+- 예시 코드나 명령어를 포함하세요 (적절한 경우).
+- 스크린샷 설명, 단계별 실습 위주로 작성하세요.
+- 버전 정보, 호환성 정보를 명시하세요.
+- 초보자도 따라할 수 있도록 상세히 설명하세요.`,
+
+    '생활정보': `
+[생활정보 카테고리 특화 가이드라인]
+- 실생활에서 바로 적용할 수 있는 팁 위주로 작성하세요.
+- 개인 경험담이나 사례를 풍부하게 포함하세요.
+- 쉽고 간단한 방법을 우선 제시하세요.
+- 비용 절감, 시간 단축 등 실질적 이점을 강조하세요.`,
+  }
+
+  const categoryGuide = categoryStyle ? (categoryGuidelines[categoryStyle] || '') : ''
+
+  return `당신은 ${selectedPersona}입니다. ${toneDescriptions[tone]}으로 자연스러운 한국어 블로그 글을 작성하세요.
 
 [핵심 원칙]
 - 주제: "${seoKeyword}"
 - 글의 모든 내용은 이 주제에 직접 관련되어야 합니다.
 - 독자는 이 주제에 대한 실용적이고 구체적인 정보를 원합니다.
+${categoryGuide}
 
 [자연스러운 글쓰기 - 절대 준수]
 - 실제 사람이 자기 경험을 바탕으로 쓴 것처럼 작성하세요.
@@ -107,18 +187,39 @@ function estimateReadTime(content: string): number {
   return Math.max(1, Math.round(charCount / 500))
 }
 
-async function generateContent(keyword: string, referenceContent?: string): Promise<GenerateResult> {
+interface GenerateOptions {
+  wordCount?: number
+  tone?: ToneType
+  persona?: string
+  categoryStyle?: string
+}
+
+async function generateContent(
+  keyword: string,
+  referenceContent?: string,
+  options: GenerateOptions = {}
+): Promise<GenerateResult> {
   const apiKey = process.env.MOONSHOT_API_KEY
   if (!apiKey) {
     throw new Error('MOONSHOT_API_KEY가 설정되지 않았습니다.')
   }
 
-  const systemPrompt = buildSystemPrompt(2500, keyword)
+  const { wordCount = 2500, tone, persona, categoryStyle } = options
+
+  const systemPrompt = buildSystemPrompt(keyword, {
+    wordCount,
+    tone,
+    persona,
+    categoryStyle,
+  })
   const startTime = Date.now()
 
   const userMessage = referenceContent
     ? `반드시 "${keyword}"에 관한 블로그 글을 작성해주세요. 글의 모든 내용이 "${keyword}" 주제에 직접적으로 관련되어야 합니다. 아래 참고 콘텐츠를 벤치마킹하여 더 나은 품질의 글을 작성하되, 내용을 그대로 복사하지 말고 독창적으로 작성하세요.\n\n주제 (반드시 이 주제로만 작성): ${keyword}\n\n--- 참고 콘텐츠 ---\n${referenceContent}`
     : `반드시 "${keyword}"에 관한 블로그 글을 작성해주세요. 글의 모든 내용이 "${keyword}" 주제에 직접적으로 관련되어야 합니다. 주제와 무관한 내용은 포함하지 마세요.\n\n주제 (반드시 이 주제로만 작성): ${keyword}`
+
+  // Adjust max_tokens based on wordCount: roughly wordCount * 3 tokens, capped at 16384
+  const maxTokens = Math.min(Math.max(wordCount * 3, 4096), 16384)
 
   const response = await fetch(`${MOONSHOT_BASE_URL}/chat/completions`, {
     method: 'POST',
@@ -133,7 +234,7 @@ async function generateContent(keyword: string, referenceContent?: string): Prom
         { role: 'user', content: userMessage },
       ],
       temperature: 0.7,
-      max_tokens: 8192,
+      max_tokens: maxTokens,
     }),
   })
 
@@ -200,7 +301,19 @@ export async function POST(request: NextRequest) {
       mode = 'auto',
       keyword,
       count = 3,
-    }: { mode: 'auto' | 'manual'; keyword?: string; count?: number } = body
+      tone = 'casual',
+      wordCount = 2500,
+      persona,
+      categoryStyle,
+    }: {
+      mode: 'auto' | 'manual'
+      keyword?: string
+      count?: number
+      tone?: ToneType
+      wordCount?: number
+      persona?: string
+      categoryStyle?: string
+    } = body
 
     if (mode === 'manual' && !keyword) {
       return NextResponse.json(
@@ -241,7 +354,12 @@ export async function POST(request: NextRequest) {
         }
 
         const { content, model, inputTokens, outputTokens, generationTimeMs } =
-          await generateContent(keyword, referenceContent)
+          await generateContent(keyword, referenceContent, {
+            wordCount,
+            tone,
+            persona,
+            categoryStyle,
+          })
         const title = extractTitle(content, analysis.suggestedTitle)
         const slug = slugify(title)
 
@@ -296,7 +414,7 @@ export async function POST(request: NextRequest) {
               input_tokens: inputTokens,
               output_tokens: outputTokens,
               generation_time_ms: generationTimeMs,
-              status: 'success',
+              status: 'completed',
             })
             .throwOnError()
         }
@@ -332,7 +450,65 @@ export async function POST(request: NextRequest) {
 
       // rankTopicsByRevenue returns KeywordAnalysis[] sorted by revenuePotential
       const ranked = await rankTopicsByRevenue(trends).catch(() => [])
-      const topTopics = ranked.slice(0, count)
+
+      // Fetch existing post titles/keywords to avoid duplicates
+      let existingKeywords = new Set<string>()
+      if (isConfigured) {
+        try {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const db = createAdminClient() as any
+          const { data: existingPosts } = await db
+            .from('posts')
+            .select('title, seo_keywords')
+            .limit(200)
+          if (existingPosts) {
+            for (const post of existingPosts) {
+              // Normalize title for fuzzy matching
+              const normalized = (post.title as string || '')
+                .toLowerCase().replace(/\s+/g, '')
+              if (normalized) existingKeywords.add(normalized)
+              // Also check seo_keywords array
+              const seoKws = post.seo_keywords as string[] | null
+              if (seoKws) {
+                for (const kw of seoKws) {
+                  existingKeywords.add(kw.toLowerCase().replace(/\s+/g, ''))
+                }
+              }
+            }
+          }
+        } catch {
+          console.log('[pipeline] Could not fetch existing posts for dedup, continuing...')
+        }
+      }
+
+      // Filter out keywords that already have posts
+      const fresh = ranked.filter(analysis => {
+        const norm = analysis.keyword.toLowerCase().replace(/\s+/g, '')
+        // Check if keyword is a substring of any existing title or vice versa
+        for (const existing of existingKeywords) {
+          if (existing.includes(norm) || norm.includes(existing)) return false
+        }
+        return true
+      })
+
+      // Pick from top candidates with randomization to avoid always selecting the same ones
+      // Take a wider pool (top 3x count) and randomly sample from it
+      const pool = (fresh.length > 0 ? fresh : ranked).slice(0, count * 3)
+      const topTopics: KeywordAnalysis[] = []
+      const poolCopy = [...pool]
+      for (let i = 0; i < Math.min(count, poolCopy.length); i++) {
+        // Weighted random: higher-ranked items get higher probability
+        const weights = poolCopy.map((_, idx) => Math.max(1, poolCopy.length - idx))
+        const totalWeight = weights.reduce((a, b) => a + b, 0)
+        let rand = Math.random() * totalWeight
+        let selectedIdx = 0
+        for (let j = 0; j < weights.length; j++) {
+          rand -= weights[j]
+          if (rand <= 0) { selectedIdx = j; break }
+        }
+        topTopics.push(poolCopy[selectedIdx])
+        poolCopy.splice(selectedIdx, 1)
+      }
 
       for (const analysis of topTopics) {
         try {
@@ -350,7 +526,12 @@ export async function POST(request: NextRequest) {
           }
 
           const { content, model, inputTokens, outputTokens, generationTimeMs } =
-            await generateContent(analysis.keyword, referenceContent)
+            await generateContent(analysis.keyword, referenceContent, {
+              wordCount,
+              tone,
+              persona,
+              categoryStyle,
+            })
           const title = extractTitle(content, analysis.suggestedTitle)
           const slug = slugify(title)
 

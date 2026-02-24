@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { StatsCard } from "@/components/admin/StatsCard";
 import { WeeklyBarChart, AIPieChart } from "@/components/admin/AnalyticsChart";
 import { cn } from "@/lib/utils/cn";
@@ -29,7 +30,7 @@ const mockRecentPosts = [
   { id: 5, title: "Supabase + Next.js 인증 구현하기", status: "발행됨", date: "2025-01-17", views: 1890 },
 ];
 
-const crawlLogs = [
+const mockCrawlLogs = [
   { source: "네이버 블로그", count: 24, status: "완료", time: "10분 전" },
   { source: "유튜브 채널", count: 8, status: "완료", time: "1시간 전" },
   { source: "티스토리", count: 15, status: "완료", time: "3시간 전" },
@@ -58,7 +59,35 @@ interface RecentPost {
   views: number;
 }
 
+interface CrawlLog {
+  source: string;
+  count: number;
+  status: string;
+  time: string;
+}
+
+function getTimeAgo(date: Date): string {
+  const now = new Date();
+  const diffMs = now.getTime() - date.getTime();
+  const diffMins = Math.floor(diffMs / 60000);
+  const diffHours = Math.floor(diffMs / 3600000);
+  const diffDays = Math.floor(diffMs / 86400000);
+
+  if (diffMins < 1) return "방금 전";
+  if (diffMins < 60) return `${diffMins}분 전`;
+  if (diffHours < 24) return `${diffHours}시간 전`;
+  return `${diffDays}일 전`;
+}
+
+// Estimate AdSense revenue based on pageviews
+// Typical Korean blog RPM (Revenue per 1000 impressions): ₩500-2000
+// Using conservative estimate of ₩800 RPM
+function estimateRevenue(pageviews: number, rpmKRW: number = 800): number {
+  return Math.floor((pageviews / 1000) * rpmKRW);
+}
+
 export default function AdminDashboard() {
+  const router = useRouter();
   const [stats, setStats] = useState({
     todayViews: "1,234",
     totalPublished: "156",
@@ -66,22 +95,28 @@ export default function AdminDashboard() {
     monthlyRevenue: "₩45,200",
   });
   const [recentPosts, setRecentPosts] = useState<RecentPost[]>(mockRecentPosts);
+  const [crawlLogs, setCrawlLogs] = useState<CrawlLog[]>(mockCrawlLogs);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     async function loadData() {
       try {
-        const [analyticsRes, postsRes] = await Promise.all([
+        const [analyticsRes, postsRes, crawlRes] = await Promise.all([
           fetch("/api/analytics"),
           fetch("/api/posts?limit=5&sort=latest"),
+          fetch("/api/crawl/sources"),
         ]);
         if (analyticsRes.ok) {
           const data = await analyticsRes.json();
-          // Analytics API has no draftCount; draft count comes from posts counts below
+          // Calculate revenue estimates
+          const dailyRevenue = estimateRevenue(data.todayViews ?? 0);
+          const monthlyRevenue = estimateRevenue((data.todayViews ?? 0) * 30);
+
           setStats((prev) => ({
             ...prev,
             todayViews: data.todayViews?.toLocaleString() ?? "0",
             totalPublished: data.publishedCount?.toLocaleString() ?? "0",
+            monthlyRevenue: `₩${monthlyRevenue.toLocaleString()}`,
           }));
         }
         if (postsRes.ok) {
@@ -108,6 +143,28 @@ export default function AdminDashboard() {
                 views: p.view_count ?? 0,
               }))
             );
+          }
+        }
+        if (crawlRes.ok) {
+          const data = await crawlRes.json();
+          if (data.sources && data.sources.length > 0) {
+            const logs = data.sources.slice(0, 5).map((s: {
+              name: string;
+              total_items: number;
+              is_active: boolean;
+              last_crawled_at: string | null;
+            }) => {
+              const timeAgo = s.last_crawled_at
+                ? getTimeAgo(new Date(s.last_crawled_at))
+                : "크롤링 안됨";
+              return {
+                source: s.name,
+                count: s.total_items ?? 0,
+                status: s.is_active && s.total_items > 0 ? "완료" : s.is_active ? "진행중" : "실패",
+                time: timeAgo,
+              };
+            });
+            setCrawlLogs(logs);
           }
         }
       } catch {
@@ -230,16 +287,47 @@ export default function AdminDashboard() {
       <div className="bg-white rounded-lg border border-gray-200 shadow-sm px-6 py-5">
         <h3 className="text-sm font-semibold text-gray-700 mb-4">빠른 실행</h3>
         <div className="flex flex-wrap gap-3">
-          <button className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-md bg-primary-50 text-primary-700 hover:bg-primary-100 transition-colors border border-primary-200">
+          <button
+            onClick={() => router.push('/admin/crawl')}
+            className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-md bg-primary-50 text-primary-700 hover:bg-primary-100 transition-colors border border-primary-200"
+          >
             <span>🔍</span> 크롤링 실행
           </button>
-          <button className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-md bg-success-light text-success hover:opacity-80 transition-opacity border border-green-200">
+          <button
+            onClick={() => router.push('/admin/generate')}
+            className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-md bg-success-light text-success hover:opacity-80 transition-opacity border border-green-200"
+          >
             <span>✨</span> AI 글 생성
           </button>
-          <button className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-md bg-gray-100 text-gray-700 hover:bg-gray-200 transition-colors border border-gray-200">
+          <button
+            onClick={async () => {
+              try {
+                await fetch('/api/sitemap-refresh', { method: 'POST' });
+                alert('사이트맵 갱신 완료');
+              } catch {
+                alert('사이트맵 갱신 실패');
+              }
+            }}
+            className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-md bg-gray-100 text-gray-700 hover:bg-gray-200 transition-colors border border-gray-200"
+          >
             <span>🗺️</span> 사이트맵 갱신
           </button>
-          <button className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-md bg-warning-light text-warning hover:opacity-80 transition-opacity border border-yellow-200">
+          <button
+            onClick={async () => {
+              try {
+                await fetch('/api/posts', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ action: 'bulk-publish' })
+                });
+                alert('일괄 발행 완료');
+                window.location.reload();
+              } catch {
+                alert('일괄 발행 실패');
+              }
+            }}
+            className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-md bg-warning-light text-warning hover:opacity-80 transition-opacity border border-yellow-200"
+          >
             <span>📤</span> 일괄 발행
           </button>
         </div>

@@ -50,6 +50,18 @@ export async function GET(request: NextRequest) {
           { id: '2', title: '2026년 주목해야 할 AI 트렌드 총정리', slug: 'ai-trends-2026', view_count: 2180 },
           { id: '3', title: 'Next.js 16 App Router 완벽 가이드', slug: 'nextjs-16-guide', view_count: 1890 },
         ],
+        devices: [
+          { name: 'mobile', count: 715, percentage: 58 },
+          { name: 'desktop', count: 420, percentage: 34 },
+          { name: 'tablet', count: 99, percentage: 8 },
+        ],
+        referrers: [
+          { source: 'google', count: 641, percentage: 52 },
+          { source: 'naver', count: 284, percentage: 23 },
+          { source: 'direct', count: 148, percentage: 12 },
+          { source: 'social', count: 123, percentage: 10 },
+          { source: 'other', count: 38, percentage: 3 },
+        ],
       })
     }
 
@@ -66,12 +78,16 @@ export async function GET(request: NextRequest) {
       { count: publishedCount },
       { data: viewsByDay },
       { data: topPosts },
+      { data: deviceData },
+      { data: referrerData },
     ] = await Promise.all([
       db.from('page_views').select('*', { count: 'exact', head: true }).gte('viewed_at', today.toISOString()),
       db.from('page_views').select('*', { count: 'exact', head: true }).gte('viewed_at', periodStart.toISOString()),
       db.from('posts').select('*', { count: 'exact', head: true }).eq('status', 'published'),
       db.from('page_views').select('viewed_at').gte('viewed_at', periodStart.toISOString()).order('viewed_at', { ascending: true }),
       db.from('posts').select('id, title, slug, view_count').eq('status', 'published').order('view_count', { ascending: false }).limit(5),
+      db.from('page_views').select('device_type').gte('viewed_at', periodStart.toISOString()),
+      db.from('page_views').select('referrer').gte('viewed_at', periodStart.toISOString()),
     ])
 
     const dayMap: Record<string, number> = {}
@@ -89,12 +105,59 @@ export async function GET(request: NextRequest) {
       return { date: dateStr, views: dayMap[dateStr] ?? 0 }
     })
 
+    // Aggregate device types
+    const deviceMap: Record<string, number> = {}
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    for (const row of (deviceData ?? []) as any[]) {
+      const device = (row.device_type as string) || 'unknown'
+      deviceMap[device] = (deviceMap[device] ?? 0) + 1
+    }
+    const totalDeviceViews = Object.values(deviceMap).reduce((sum, count) => sum + count, 0)
+    const devices = Object.entries(deviceMap).map(([name, count]) => ({
+      name,
+      count,
+      percentage: totalDeviceViews > 0 ? Math.round((count / totalDeviceViews) * 100) : 0,
+    })).sort((a, b) => b.count - a.count)
+
+    // Aggregate referrers with categorization
+    const referrerMap: Record<string, number> = {}
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    for (const row of (referrerData ?? []) as any[]) {
+      let source = 'direct'
+      const ref = (row.referrer as string | null)
+
+      if (ref && ref.trim()) {
+        const refLower = ref.toLowerCase()
+        if (refLower.includes('google')) {
+          source = 'google'
+        } else if (refLower.includes('naver')) {
+          source = 'naver'
+        } else if (refLower.includes('daum')) {
+          source = 'daum'
+        } else if (refLower.includes('facebook') || refLower.includes('twitter') || refLower.includes('instagram') || refLower.includes('linkedin') || refLower.includes('kakao')) {
+          source = 'social'
+        } else {
+          source = 'other'
+        }
+      }
+
+      referrerMap[source] = (referrerMap[source] ?? 0) + 1
+    }
+    const totalReferrerViews = Object.values(referrerMap).reduce((sum, count) => sum + count, 0)
+    const referrers = Object.entries(referrerMap).map(([source, count]) => ({
+      source,
+      count,
+      percentage: totalReferrerViews > 0 ? Math.round((count / totalReferrerViews) * 100) : 0,
+    })).sort((a, b) => b.count - a.count)
+
     return NextResponse.json({
       todayViews: todayViews ?? 0,
       totalViews: totalViews ?? 0,
       publishedCount: publishedCount ?? 0,
       weeklyData,
       topPosts: topPosts ?? [],
+      devices,
+      referrers,
     })
   } catch (err) {
     console.error('GET /api/analytics error:', err)

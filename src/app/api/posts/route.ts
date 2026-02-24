@@ -126,6 +126,11 @@ export async function POST(request: NextRequest) {
       postInput.published_at = new Date().toISOString()
     }
 
+    // Support scheduled_at field
+    if (postInput.scheduled_at) {
+      postInput.scheduled_at = new Date(postInput.scheduled_at).toISOString()
+    }
+
     const { data: post, error } = await db
       .from('posts')
       .insert(postInput)

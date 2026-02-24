@@ -14,6 +14,11 @@ const periodMap: Record<string, string> = {
   "1년": "90d",
 };
 
+// Revenue estimation helper
+function estimateRevenue(pageviews: number, rpmKRW: number = 800): number {
+  return Math.floor((pageviews / 1000) * rpmKRW);
+}
+
 const mockTrafficData = [
   { day: "1/14", views: 980 },
   { day: "1/15", views: 1240 },
@@ -24,13 +29,13 @@ const mockTrafficData = [
   { day: "1/20", views: 1750 },
 ];
 
-const devices = [
+const mockDevices = [
   { name: "모바일", pct: 58, color: "bg-primary-500" },
   { name: "데스크탑", pct: 34, color: "bg-success" },
   { name: "태블릿", pct: 8, color: "bg-warning" },
 ];
 
-const referrers = [
+const mockReferrers = [
   { source: "구글 검색", visits: 2840, pct: 52 },
   { source: "네이버 검색", visits: 1240, pct: 23 },
   { source: "직접 접속", visits: 680, pct: 12 },
@@ -45,18 +50,17 @@ interface AnalyticsData {
   draftCount: number;
   weeklyData: { day?: string; date?: string; views: number }[];
   topPosts: { id: string; title: string; view_count: number; slug: string }[];
+  devices?: { name: string; count: number; percentage: number }[];
+  referrers?: { source: string; count: number; percentage: number }[];
 }
 
 export default function AnalyticsPage() {
   const [dateRange, setDateRange] = useState<string>("7일");
-  const [period, setPeriod] = useState<'7d' | '30d' | '90d'>('7d');
   const [analytics, setAnalytics] = useState<AnalyticsData | null>(null);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    const mapped = periodMap[dateRange] as '7d' | '30d' | '90d';
-    setPeriod(mapped);
-  }, [dateRange]);
+  // Derive period from dateRange instead of using separate state
+  const period = periodMap[dateRange] as '7d' | '30d' | '90d';
 
   useEffect(() => {
     setLoading(true);
@@ -85,6 +89,42 @@ export default function AnalyticsPage() {
   const chartData = normalizedWeeklyData?.length ? normalizedWeeklyData : mockTrafficData;
   const topPostsData = analytics?.topPosts ?? [];
 
+  // Device data with fallback to mock
+  const deviceColorMap: Record<string, string> = {
+    mobile: "bg-primary-500",
+    desktop: "bg-success",
+    tablet: "bg-warning",
+    모바일: "bg-primary-500",
+    데스크탑: "bg-success",
+    태블릿: "bg-warning",
+  };
+  const devices = analytics?.devices?.length
+    ? analytics.devices.map((d) => ({
+        name: d.name === 'mobile' ? '모바일' : d.name === 'desktop' ? '데스크탑' : d.name === 'tablet' ? '태블릿' : d.name,
+        pct: d.percentage,
+        color: deviceColorMap[d.name] ?? "bg-gray-400",
+      }))
+    : mockDevices;
+
+  // Referrer data with fallback to mock
+  const referrerNameMap: Record<string, string> = {
+    google: "구글 검색",
+    naver: "네이버 검색",
+    direct: "직접 접속",
+    social: "소셜 미디어",
+    other: "기타",
+  };
+  const referrers = analytics?.referrers?.length
+    ? analytics.referrers.map((r) => ({
+        source: referrerNameMap[r.source] ?? r.source,
+        visits: r.count,
+        pct: r.percentage,
+      }))
+    : mockReferrers;
+
+  const todayRevenue = analytics?.todayViews ? estimateRevenue(analytics.todayViews) : 0;
+  const totalRevenue = analytics?.totalViews ? estimateRevenue(analytics.totalViews) : 0;
+
   const summaryStats = [
     {
       label: "오늘 페이지뷰",
@@ -105,6 +145,24 @@ export default function AnalyticsPage() {
       label: "임시저장",
       value: loading ? "..." : (analytics?.draftCount?.toLocaleString() ?? "0"),
       change: 0,
+    },
+  ];
+
+  const revenueStats = [
+    {
+      label: "오늘 예상 수익",
+      value: loading ? "..." : `₩${todayRevenue.toLocaleString()}`,
+      sublabel: "RPM ₩800 기준",
+    },
+    {
+      label: `${dateRange} 예상 수익`,
+      value: loading ? "..." : `₩${totalRevenue.toLocaleString()}`,
+      sublabel: "광고 노출 기준",
+    },
+    {
+      label: "월 예상 수익",
+      value: loading ? "..." : `₩${(todayRevenue * 30).toLocaleString()}`,
+      sublabel: "일 평균 기준",
     },
   ];
 
@@ -151,6 +209,26 @@ export default function AnalyticsPage() {
             )}
           </div>
         ))}
+      </div>
+
+      {/* Revenue estimation */}
+      <div className="bg-gradient-to-br from-purple-50 to-blue-50 rounded-lg border border-purple-200 shadow-sm p-6">
+        <div className="flex items-center gap-2 mb-4">
+          <span className="text-2xl">💰</span>
+          <h3 className="text-sm font-semibold text-gray-700">AdSense 수익 예측</h3>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          {revenueStats.map((stat, i) => (
+            <div key={i} className="bg-white rounded-lg px-4 py-3">
+              <p className="text-xs text-gray-500">{stat.label}</p>
+              <p className="text-xl font-bold text-purple-600 mt-1">{stat.value}</p>
+              <p className="text-xs text-gray-400 mt-0.5">{stat.sublabel}</p>
+            </div>
+          ))}
+        </div>
+        <p className="text-xs text-gray-500 mt-4">
+          * 예상 수익은 페이지뷰와 평균 RPM(₩800)을 기준으로 계산됩니다. 실제 수익은 광고 클릭률, 광고주 입찰가, 콘텐츠 주제 등에 따라 달라질 수 있습니다.
+        </p>
       </div>
 
       {/* Traffic chart */}
