@@ -77,6 +77,11 @@ export async function generateFeaturedImage(
   }
 }
 
+interface UploadResult {
+  url: string | null
+  error?: string
+}
+
 /**
  * Upload a base64 image to Supabase Storage and return the public URL.
  * Uses admin client to bypass RLS for reliable uploads in API routes.
@@ -84,12 +89,12 @@ export async function generateFeaturedImage(
 export async function uploadImageToSupabase(
   base64DataUrl: string,
   slug: string
-): Promise<string | null> {
-  const isConfigured = !!(
-    process.env.NEXT_PUBLIC_SUPABASE_URL &&
-    process.env.SUPABASE_SERVICE_ROLE_KEY
-  )
-  if (!isConfigured) return null
+): Promise<UploadResult> {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+  if (!supabaseUrl || !serviceKey) {
+    return { url: null, error: 'Missing SUPABASE env vars' }
+  }
 
   try {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -97,13 +102,17 @@ export async function uploadImageToSupabase(
 
     // Parse base64 data URL
     const matches = base64DataUrl.match(/^data:(.+);base64,(.+)$/)
-    if (!matches) return null
+    if (!matches) {
+      return { url: null, error: 'Invalid base64 data URL format' }
+    }
 
     const mimeType = matches[1]
     const base64Data = matches[2]
     const extension = mimeType.split('/')[1] || 'png'
     const buffer = Buffer.from(base64Data, 'base64')
     const fileName = `posts/${slug}-${Date.now()}.${extension}`
+
+    console.log(`[gemini-image] Uploading ${buffer.length} bytes as ${fileName}`)
 
     const { data, error } = await supabase.storage
       .from('images')
@@ -113,8 +122,7 @@ export async function uploadImageToSupabase(
       })
 
     if (error) {
-      console.error('[gemini-image] Upload error:', error.message)
-      return null
+      return { url: null, error: `Storage upload: ${error.message}` }
     }
 
     // Get public URL
@@ -122,10 +130,17 @@ export async function uploadImageToSupabase(
       .from('images')
       .getPublicUrl(data.path)
 
-    return urlData?.publicUrl ?? null
+    const publicUrl = urlData?.publicUrl ?? null
+    if (!publicUrl) {
+      return { url: null, error: 'Failed to get public URL' }
+    }
+
+    console.log(`[gemini-image] Upload success: ${publicUrl}`)
+    return { url: publicUrl }
   } catch (err) {
-    console.error('[gemini-image] Upload failed:', err instanceof Error ? err.message : err)
-    return null
+    const msg = err instanceof Error ? err.message : String(err)
+    console.error('[gemini-image] Upload exception:', msg)
+    return { url: null, error: `Upload exception: ${msg}` }
   }
 }
 

@@ -371,10 +371,11 @@ export async function POST(request: NextRequest) {
         try {
           const imgResult = await generateFeaturedImage(keyword, title, extractExcerpt(content))
           if (imgResult.imageUrl) {
-            const uploaded = await uploadImageToSupabase(imgResult.imageUrl, slug)
-            featuredImage = uploaded ?? undefined
-            if (!featuredImage) {
-              errors.push(`[이미지] "${keyword}" 업로드 실패`)
+            const uploadResult = await uploadImageToSupabase(imgResult.imageUrl, slug)
+            if (uploadResult.url) {
+              featuredImage = uploadResult.url
+            } else {
+              errors.push(`[이미지] "${keyword}" 업로드 실패: ${uploadResult.error}`)
             }
           } else {
             errors.push(`[이미지] "${keyword}" 생성 실패: ${imgResult.error ?? 'unknown'}`)
@@ -548,10 +549,11 @@ export async function POST(request: NextRequest) {
           try {
             const imgResult = await generateFeaturedImage(analysis.keyword, title, extractExcerpt(content))
             if (imgResult.imageUrl) {
-              const uploaded = await uploadImageToSupabase(imgResult.imageUrl, slug)
-              featuredImage = uploaded ?? undefined
-              if (!featuredImage) {
-                errors.push(`[이미지] "${analysis.keyword}" 업로드 실패`)
+              const uploadResult = await uploadImageToSupabase(imgResult.imageUrl, slug)
+              if (uploadResult.url) {
+                featuredImage = uploadResult.url
+              } else {
+                errors.push(`[이미지] "${analysis.keyword}" 업로드 실패: ${uploadResult.error}`)
               }
             } else {
               errors.push(`[이미지] "${analysis.keyword}" 생성 실패: ${imgResult.error ?? 'unknown'}`)
