@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { cn } from "@/lib/utils/cn";
+import { useGeneration } from "@/contexts/GenerationContext";
 
 // ── Shared Interfaces ────────────────────────────────────────────────────────
 
@@ -191,6 +192,7 @@ const TOP_TABS: { key: TopTab; label: string }[] = [
 // ═════════════════════════════════════════════════════════════════════════════
 
 export default function CrawlPage() {
+  const generation = useGeneration();
   const [activeTab, setActiveTab] = useState<TopTab>("pipeline");
 
   // ── Crawl / Pipeline state ───────────────────────────────────────────────
@@ -518,9 +520,10 @@ export default function CrawlPage() {
     setPipelineRunning(true);
     setPipelineStep("trends");
     setPipelineKeyword(keyword);
+    const jobId = generation.startJob({ mode: "manual", keyword });
     try {
-      stepTimersRef.current.push(setTimeout(() => setPipelineStep("benchmark"), 2000));
-      stepTimersRef.current.push(setTimeout(() => setPipelineStep("generate"), 6000));
+      stepTimersRef.current.push(setTimeout(() => { setPipelineStep("benchmark"); generation.updateStep(jobId, "benchmark"); }, 2000));
+      stepTimersRef.current.push(setTimeout(() => { setPipelineStep("generate"); generation.updateStep(jobId, "generate"); }, 6000));
 
       const res = await fetch("/api/pipeline", {
         method: "POST",
@@ -547,21 +550,29 @@ export default function CrawlPage() {
           errorMessages: [data.error ?? "API 오류"],
           items: [],
         });
+        generation.addError(jobId, data.error ?? "API 오류");
+        generation.finishJob(jobId, false);
         return;
       }
 
       setPipelineStep("done");
-      setPipelineResult(mapPipelineResponse(data));
+      const result = mapPipelineResponse(data);
+      setPipelineResult(result);
+      result.items.forEach((item) => generation.addResult(jobId, item));
+      generation.finishJob(jobId, true);
     } catch (err) {
       clearStepTimers();
       setPipelineStep("error");
+      const errMsg = err instanceof Error ? err.message : "네트워크 오류";
       setPipelineResult({
         executedAt: new Date().toLocaleString("ko-KR"),
         contentGenerated: 0,
         errorCount: 1,
-        errorMessages: [err instanceof Error ? err.message : "네트워크 오류"],
+        errorMessages: [errMsg],
         items: [],
       });
+      generation.addError(jobId, errMsg);
+      generation.finishJob(jobId, false);
     } finally {
       setPipelineRunning(false);
       const t = setTimeout(() => { setPipelineStep("idle"); setPipelineKeyword(""); }, 3000);
@@ -612,6 +623,8 @@ export default function CrawlPage() {
     setBatchGenerating(true);
     setBatchProgress({ current: 0, total: keywords.length, currentKeyword: "" });
     setPipelineStep("generate");
+    const jobId = generation.startJob({ mode: "batch", keyword: keywords[0], batchTotal: keywords.length });
+    generation.updateStep(jobId, "generate");
 
     const allItems: { title: string; keyword: string; success: boolean }[] = [];
     const allErrors: string[] = [];
@@ -619,6 +632,7 @@ export default function CrawlPage() {
     for (let i = 0; i < keywords.length; i++) {
       const kw = keywords[i];
       setBatchProgress({ current: i + 1, total: keywords.length, currentKeyword: kw });
+      generation.updateBatchProgress(jobId, i + 1, kw);
 
       try {
         const res = await fetch("/api/pipeline", {
@@ -637,15 +651,21 @@ export default function CrawlPage() {
         if (!res.ok) {
           allErrors.push(`"${kw}": ${data.error ?? "API 오류"}`);
           allItems.push({ title: kw, keyword: kw, success: false });
+          generation.addError(jobId, `"${kw}": ${data.error ?? "API 오류"}`);
+          generation.addResult(jobId, { title: kw, keyword: kw, success: false });
         } else {
           const posts = data.posts ?? [];
           for (const p of posts) {
             allItems.push({ title: p.title, keyword: p.keyword, success: true });
+            generation.addResult(jobId, { title: p.title, keyword: p.keyword, success: true });
           }
         }
       } catch (err) {
-        allErrors.push(`"${kw}": ${err instanceof Error ? err.message : "네트워크 오류"}`);
+        const errMsg = err instanceof Error ? err.message : "네트워크 오류";
+        allErrors.push(`"${kw}": ${errMsg}`);
         allItems.push({ title: kw, keyword: kw, success: false });
+        generation.addError(jobId, `"${kw}": ${errMsg}`);
+        generation.addResult(jobId, { title: kw, keyword: kw, success: false });
       }
     }
 
@@ -659,6 +679,7 @@ export default function CrawlPage() {
     });
     setSelectedKeywords(new Set());
     setBatchGenerating(false);
+    generation.finishJob(jobId, allErrors.length === 0);
     const t = setTimeout(() => { setPipelineStep("idle"); }, 3000);
     stepTimersRef.current.push(t);
   };
@@ -669,9 +690,10 @@ export default function CrawlPage() {
     setPipelineRunning(true);
     setPipelineStep("trends");
     setPipelineKeyword("");
+    const jobId = generation.startJob({ mode: "auto", keyword: "자동 생성", batchTotal: 3 });
     try {
-      stepTimersRef.current.push(setTimeout(() => setPipelineStep("benchmark"), 3000));
-      stepTimersRef.current.push(setTimeout(() => setPipelineStep("generate"), 8000));
+      stepTimersRef.current.push(setTimeout(() => { setPipelineStep("benchmark"); generation.updateStep(jobId, "benchmark"); }, 3000));
+      stepTimersRef.current.push(setTimeout(() => { setPipelineStep("generate"); generation.updateStep(jobId, "generate"); }, 8000));
 
       const res = await fetch("/api/pipeline", {
         method: "POST",
@@ -698,21 +720,29 @@ export default function CrawlPage() {
           errorMessages: [data.error ?? "API 오류"],
           items: [],
         });
+        generation.addError(jobId, data.error ?? "API 오류");
+        generation.finishJob(jobId, false);
         return;
       }
 
       setPipelineStep("done");
-      setPipelineResult(mapPipelineResponse(data));
+      const result = mapPipelineResponse(data);
+      setPipelineResult(result);
+      result.items.forEach((item) => generation.addResult(jobId, item));
+      generation.finishJob(jobId, true);
     } catch (err) {
       clearStepTimers();
       setPipelineStep("error");
+      const errMsg = err instanceof Error ? err.message : "네트워크 오류";
       setPipelineResult({
         executedAt: new Date().toLocaleString("ko-KR"),
         contentGenerated: 0,
         errorCount: 1,
-        errorMessages: [err instanceof Error ? err.message : "네트워크 오류"],
+        errorMessages: [errMsg],
         items: [],
       });
+      generation.addError(jobId, errMsg);
+      generation.finishJob(jobId, false);
     } finally {
       setPipelineRunning(false);
       const t = setTimeout(() => { setPipelineStep("idle"); setPipelineKeyword(""); }, 3000);
@@ -727,6 +757,9 @@ export default function CrawlPage() {
     setGenerateError("");
     setSaveSuccess(false);
     setSavedPostId(null);
+    const manualKeyword = inputMethod === "topic" ? topic : inputMethod === "trend" ? selectedTrend : selectedSource;
+    const jobId = generation.startJob({ mode: "manual", keyword: manualKeyword || "수동 생성" });
+    generation.updateStep(jobId, "generate");
 
     try {
       const selectedItem = crawledItems.find(i => i.id === selectedItemId);
@@ -738,7 +771,7 @@ export default function CrawlPage() {
         body: JSON.stringify({
           provider: selectedProvider,
           model: providerModelMap[selectedProvider],
-          topic: inputMethod === "topic" ? topic : inputMethod === "trend" ? selectedTrend : selectedSource,
+          topic: manualKeyword,
           category: selectedCategory,
           tone: selectedTone,
           wordCount,
@@ -751,12 +784,19 @@ export default function CrawlPage() {
 
       if (!res.ok) {
         setGenerateError(data.error || "글 생성에 실패했습니다.");
+        generation.addError(jobId, data.error || "글 생성 실패");
+        generation.finishJob(jobId, false);
         return;
       }
 
       setGeneratedContent(data.data.content);
+      generation.addResult(jobId, { title: manualKeyword || "수동 생성", keyword: manualKeyword || "", success: true });
+      generation.finishJob(jobId, true);
     } catch (err) {
-      setGenerateError(err instanceof Error ? err.message : "네트워크 오류가 발생했습니다.");
+      const errMsg = err instanceof Error ? err.message : "네트워크 오류가 발생했습니다.";
+      setGenerateError(errMsg);
+      generation.addError(jobId, errMsg);
+      generation.finishJob(jobId, false);
     } finally {
       setGenerating(false);
     }

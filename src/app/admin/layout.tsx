@@ -5,6 +5,8 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Sidebar, HamburgerButton } from "@/components/admin/Sidebar";
 import { cn } from "@/lib/utils/cn";
+import { GenerationProvider } from "@/contexts/GenerationContext";
+import GenerationProgressFloat from "@/components/admin/GenerationProgressFloat";
 
 const breadcrumbMap: Record<string, string> = {
   "/admin": "대시보드",
@@ -37,6 +39,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   const currentLabel = breadcrumbMap[pathname] ?? "관리자";
 
   return (
+    <GenerationProvider>
     <div className="min-h-screen bg-gray-50">
       <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
 
@@ -83,6 +86,8 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
           {children}
         </main>
       </div>
+      <GenerationProgressFloat />
     </div>
+    </GenerationProvider>
   );
 }
