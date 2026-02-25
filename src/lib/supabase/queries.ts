@@ -137,7 +137,7 @@ export async function getPublishedPosts(options?: {
 export async function getPostBySlug(
   slug: string
 ): Promise<PostDetailData | null> {
-  // Defensively decode URI-encoded slugs (Korean chars may arrive encoded)
+  // Decode URI-encoded slugs (Korean chars arrive percent-encoded from URL path)
   let decodedSlug = slug
   try {
     decodedSlug = decodeURIComponent(slug)
@@ -145,12 +145,7 @@ export async function getPostBySlug(
     // Already decoded or invalid encoding — use as-is
   }
 
-  console.log('[getPostBySlug] input slug:', JSON.stringify(slug))
-  console.log('[getPostBySlug] decoded slug:', JSON.stringify(decodedSlug))
-  console.log('[getPostBySlug] isSupabaseConfigured:', isSupabaseConfigured())
-
   if (!isSupabaseConfigured()) {
-    console.log('[getPostBySlug] Supabase NOT configured, using mock data')
     const { mockPosts, mockPostDetails } = await import('@/lib/mock-data')
     const detail = mockPostDetails[decodedSlug]
     const basic = mockPosts.find((p) => p.slug === decodedSlug)
@@ -185,12 +180,9 @@ export async function getPostBySlug(
     .eq('status', 'published')
     .single()
 
-  console.log('[getPostBySlug] query result:', { found: !!post, error: error?.message, errorCode: error?.code })
-
   if (error || !post) {
-    // Fallback: try with original slug if different from decoded
+    // Fallback: try with original slug if decoding changed it
     if (decodedSlug !== slug) {
-      console.log('[getPostBySlug] Trying with original slug...')
       const { data: post2, error: error2 } = await supabase
         .from('posts')
         .select('*, category:categories(name, slug)')
@@ -198,7 +190,6 @@ export async function getPostBySlug(
         .eq('status', 'published')
         .single()
       if (!error2 && post2) {
-        console.log('[getPostBySlug] Found with original slug!')
         return mapPostToDetail(supabase, post2)
       }
     }

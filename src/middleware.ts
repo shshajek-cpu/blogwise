@@ -9,7 +9,6 @@ const PUBLIC_API_PATHS = [
   '/api/cron/',       // Cron endpoints use CRON_SECRET for auth
   '/api/sitemap',
   '/api/rss',
-  '/api/debug-post',  // Temporary debug endpoint
 ]
 
 function isPublicApiPath(pathname: string): boolean {
