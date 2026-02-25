@@ -137,10 +137,23 @@ export async function getPublishedPosts(options?: {
 export async function getPostBySlug(
   slug: string
 ): Promise<PostDetailData | null> {
+  // Defensively decode URI-encoded slugs (Korean chars may arrive encoded)
+  let decodedSlug = slug
+  try {
+    decodedSlug = decodeURIComponent(slug)
+  } catch {
+    // Already decoded or invalid encoding — use as-is
+  }
+
+  console.log('[getPostBySlug] input slug:', JSON.stringify(slug))
+  console.log('[getPostBySlug] decoded slug:', JSON.stringify(decodedSlug))
+  console.log('[getPostBySlug] isSupabaseConfigured:', isSupabaseConfigured())
+
   if (!isSupabaseConfigured()) {
+    console.log('[getPostBySlug] Supabase NOT configured, using mock data')
     const { mockPosts, mockPostDetails } = await import('@/lib/mock-data')
-    const detail = mockPostDetails[slug]
-    const basic = mockPosts.find((p) => p.slug === slug)
+    const detail = mockPostDetails[decodedSlug]
+    const basic = mockPosts.find((p) => p.slug === decodedSlug)
 
     if (!detail && !basic) return null
 
@@ -168,13 +181,35 @@ export async function getPostBySlug(
   const { data: post, error } = await supabase
     .from('posts')
     .select('*, category:categories(name, slug)')
-    .eq('slug', slug)
+    .eq('slug', decodedSlug)
     .eq('status', 'published')
     .single()
 
-  if (error || !post) return null
+  console.log('[getPostBySlug] query result:', { found: !!post, error: error?.message, errorCode: error?.code })
 
-  // Get tags
+  if (error || !post) {
+    // Fallback: try with original slug if different from decoded
+    if (decodedSlug !== slug) {
+      console.log('[getPostBySlug] Trying with original slug...')
+      const { data: post2, error: error2 } = await supabase
+        .from('posts')
+        .select('*, category:categories(name, slug)')
+        .eq('slug', slug)
+        .eq('status', 'published')
+        .single()
+      if (!error2 && post2) {
+        console.log('[getPostBySlug] Found with original slug!')
+        return mapPostToDetail(supabase, post2)
+      }
+    }
+    return null
+  }
+
+  return mapPostToDetail(supabase, post)
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function mapPostToDetail(supabase: any, post: any): Promise<PostDetailData> {
   const { data: postTags } = await supabase
     .from('post_tags')
     .select('tag:tags(name)')
