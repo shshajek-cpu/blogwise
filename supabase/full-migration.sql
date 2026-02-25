@@ -130,7 +130,7 @@ CREATE TABLE public.crawled_items (
   images TEXT[] DEFAULT '{}',
   metadata JSONB DEFAULT '{}'::jsonb,
   is_used BOOLEAN NOT NULL DEFAULT false,
-  generated_post_id UUID REFERENCES public.posts(id),
+  generated_post_id UUID REFERENCES public.posts(id) ON DELETE SET NULL,
   crawled_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 CREATE INDEX idx_crawled_source ON public.crawled_items(source_id);
