@@ -141,12 +141,14 @@ ${categoryGuide}
 - 모든 섹션이 같은 길이/구조 (변화를 주세요)
 
 [구조]
-1. 제목(h1): "${seoKeyword}"를 포함하되, 클릭하고 싶은 매력적인 제목
-2. 도입부: 독자의 상황에 공감하며 시작 (1~2문단)
-3. 본론: 3~5개 섹션, 각 섹션마다 다른 스타일로 (어떤 건 리스트, 어떤 건 이야기, 어떤 건 비교표)
-4. 마무리: 핵심 요약 + 독자에게 응원/조언 한마디
-5. 목표 글자 수: 약 ${wordCount}자
-6. 마크다운 형식 (h1/h2/h3, 리스트, 표, 강조 등)
+1. 제목: # 제목 (마크다운 # 사용, "${seoKeyword}" 포함, 클릭하고 싶은 매력적인 제목)
+2. 도입부: 독자의 상황에 공감하며 시작 (2~3문단)
+3. 본론: 4~6개 섹션, 각 섹션마다 ## 소제목 사용, 각 섹션 최소 3문단, 다른 스타일로 (어떤 건 리스트, 어떤 건 이야기, 어떤 건 비교표)
+4. 마무리: 핵심 요약 + 독자에게 응원/조언 한마디 (2~3문단)
+5. 글자 수: 반드시 ${wordCount}자 이상 작성하세요. 짧은 글은 절대 안 됩니다.
+6. 형식: 반드시 마크다운 문법만 사용 (제목은 #, 소제목은 ##, 소소제목은 ###, 리스트는 -, 강조는 **굵게**)
+   - HTML 태그(h1, h2, p, div 등)는 절대 사용하지 마세요.
+   - 마크다운 예시: # 제목, ## 소제목, ### 소소제목, - 리스트, **강조**
 
 [SEO]
 - "${seoKeyword}"를 제목과 첫 문단에 포함
@@ -308,13 +310,36 @@ async function generateContent(
   }
 
   const data = await response.json()
+  const rawContent = data.choices[0]?.message?.content ?? ''
   return {
-    content: data.choices[0]?.message?.content ?? '',
+    content: sanitizeContent(rawContent),
     model: data.model ?? model,
     inputTokens: data.usage?.prompt_tokens ?? 0,
     outputTokens: data.usage?.completion_tokens ?? 0,
     generationTimeMs: Date.now() - startTime,
   }
+}
+
+/**
+ * Post-process AI content: remove stray foreign words, fix broken formatting.
+ */
+function sanitizeContent(content: string): string {
+  let result = content
+  // Remove isolated foreign words (English/Spanish/etc mixed into Korean sentences)
+  // Matches: space + latin word + space in the middle of Korean text
+  result = result.replace(/([가-힣])\s+[a-zA-Z]{3,20}\s+([가-힣])/g, '$1 $2')
+  // Remove stray Chinese characters (but keep intentional terms in backticks)
+  result = result.replace(/(?<!`)[\u4e00-\u9fff]+(?!`)/g, '')
+  // Fix double spaces left by removals
+  result = result.replace(/ {2,}/g, ' ')
+  // Ensure markdown headings use # not HTML
+  result = result.replace(/^<h1[^>]*>(.*?)<\/h1>/gim, '# $1')
+  result = result.replace(/^<h2[^>]*>(.*?)<\/h2>/gim, '## $1')
+  result = result.replace(/^<h3[^>]*>(.*?)<\/h3>/gim, '### $1')
+  result = result.replace(/^h1[.>]\s*/gim, '# ')
+  result = result.replace(/^h2[.>]\s*/gim, '## ')
+  result = result.replace(/^h3[.>]\s*/gim, '### ')
+  return result.trim()
 }
 
 interface GeneratedPost {
@@ -392,8 +417,10 @@ export async function POST(request: NextRequest) {
     // Load DB settings once; used as fallback for API keys and model
     const dbSettings = await loadSiteSettings()
 
-    // Return mock if neither Supabase nor AI key is configured (env or DB)
+    // Check if AI key is configured (env or DB)
     const hasMoonshotKey = !!(process.env.MOONSHOT_API_KEY || dbSettings.moonshot_api_key)
+
+    // Return mock if Supabase is not configured and no AI key
     if (!isConfigured && !hasMoonshotKey) {
       return NextResponse.json({
         generated: MOCK_POSTS.length,
@@ -401,6 +428,14 @@ export async function POST(request: NextRequest) {
         errors: [],
         mock: true,
       })
+    }
+
+    // Early exit if no AI key — don't waste time crawling
+    if (!hasMoonshotKey) {
+      return NextResponse.json(
+        { error: 'Moonshot API 키가 설정되지 않았습니다. 관리자 설정(Settings)에서 API 키를 입력해주세요.' },
+        { status: 400 }
+      )
     }
 
     const generatedPosts: GeneratedPost[] = []
@@ -427,10 +462,14 @@ export async function POST(request: NextRequest) {
             angleHint = `\n\n참고: 이미 "${dupCheck.similarPosts[0].title}" 글이 있으므로, 다른 관점이나 최신 정보 위주로 차별화해서 작성하세요.`
           }
 
-          // Benchmark: crawl top articles for this keyword
+          // Benchmark: crawl top articles for this keyword (with 20s timeout)
           let referenceContent: string | undefined
           try {
-            const benchmarkArticles = await crawlForKeyword(keyword, 3)
+            const crawlPromise = crawlForKeyword(keyword, 3)
+            const timeoutPromise = new Promise<never>((_, reject) =>
+              setTimeout(() => reject(new Error('Benchmark crawl timeout (20s)')), 20000)
+            )
+            const benchmarkArticles = await Promise.race([crawlPromise, timeoutPromise])
             if (benchmarkArticles.length > 0) {
               referenceContent = benchmarkArticles
                 .map((a, i) => `[참고${i + 1}] ${a.title}\n${a.content.substring(0, 2000)}`)
@@ -696,10 +735,14 @@ export async function POST(request: NextRequest) {
             angleHint = `\n\n참고: 이미 "${dupCheck.similarPosts[0].title}" 글이 있으므로, 다른 관점이나 최신 정보 위주로 차별화해서 작성하세요.`
           }
 
-          // Benchmark: crawl top articles for this keyword
+          // Benchmark: crawl top articles for this keyword (with 20s timeout)
           let referenceContent: string | undefined
           try {
-            const benchmarkArticles = await crawlForKeyword(analysis.keyword, 3)
+            const crawlPromise = crawlForKeyword(analysis.keyword, 3)
+            const timeoutPromise = new Promise<never>((_, reject) =>
+              setTimeout(() => reject(new Error('Benchmark crawl timeout (20s)')), 20000)
+            )
+            const benchmarkArticles = await Promise.race([crawlPromise, timeoutPromise])
             if (benchmarkArticles.length > 0) {
               referenceContent = benchmarkArticles
                 .map((a, i) => `[참고${i + 1}] ${a.title}\n${a.content.substring(0, 2000)}`)

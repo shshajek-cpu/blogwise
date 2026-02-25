@@ -6,6 +6,9 @@ const PUBLIC_API_PATHS = [
   '/api/analytics/track',
   '/api/search',
   '/api/sidebar',
+  '/api/cron/',       // Cron endpoints use CRON_SECRET for auth
+  '/api/sitemap',
+  '/api/rss',
 ]
 
 function isPublicApiPath(pathname: string): boolean {

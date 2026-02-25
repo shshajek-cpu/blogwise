@@ -3,7 +3,12 @@
 import { useState, useRef, useEffect } from "react";
 import Link from "next/link";
 
-const categories = [
+interface CategoryItem {
+  name: string;
+  slug: string;
+}
+
+const fallbackCategories: CategoryItem[] = [
   { name: "기술", slug: "tech" },
   { name: "AI", slug: "ai" },
   { name: "라이프스타일", slug: "lifestyle" },
@@ -11,7 +16,7 @@ const categories = [
   { name: "비즈니스", slug: "business" },
 ];
 
-function CategoryDropdown() {
+function CategoryDropdown({ categories }: { categories: CategoryItem[] }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
@@ -75,7 +80,8 @@ function SearchIcon() {
   );
 }
 
-export default function Header() {
+export default function Header({ categories: propCategories }: { categories?: CategoryItem[] } = {}) {
+  const categories = propCategories && propCategories.length > 0 ? propCategories : fallbackCategories;
   const [mobileOpen, setMobileOpen] = useState(false);
 
   return (
@@ -98,7 +104,7 @@ export default function Header() {
               <Link href="/posts" className="text-sm font-medium text-gray-700 hover:text-primary-600 transition-colors">
                 최신글
               </Link>
-              <CategoryDropdown />
+              <CategoryDropdown categories={categories} />
               <SearchIcon />
               <Link
                 href="/subscribe"

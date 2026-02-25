@@ -3,6 +3,7 @@ import Header from "@/components/layout/Header";
 import Footer from "@/components/layout/Footer";
 import Script from "next/script";
 import { loadSiteSettings } from "@/lib/settings";
+import { getCategories } from "@/lib/supabase/queries";
 
 export async function generateMetadata(): Promise<Metadata> {
   const settings = await loadSiteSettings();
@@ -30,7 +31,10 @@ export default async function BlogLayout({
   children: React.ReactNode;
 }) {
   // Resolve AdSense settings: env vars take priority, then DB settings
-  const settings = await loadSiteSettings();
+  const [settings, categories] = await Promise.all([
+    loadSiteSettings(),
+    getCategories(),
+  ]);
 
   const adsenseEnabled =
     process.env.NEXT_PUBLIC_ADSENSE_ENABLED === "true" ||
@@ -66,7 +70,7 @@ export default async function BlogLayout({
           </Script>
         </>
       )}
-      <Header />
+      <Header categories={categories} />
       <main className="min-h-screen bg-background">
         {children}
       </main>
