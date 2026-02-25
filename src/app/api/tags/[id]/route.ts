@@ -14,14 +14,14 @@ export async function PATCH(
     const { id } = await params
 
     if (!isConfigured) {
-      return NextResponse.json({ success: true, category: null })
+      return NextResponse.json({ success: true, tag: null })
     }
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const db = createAdminClient() as any
     const body = await request.json()
 
-    const allowedFields = ['name', 'slug', 'description', 'color']
+    const allowedFields = ['name', 'slug']
     const updateData: Record<string, unknown> = {}
     for (const field of allowedFields) {
       if (field in body) updateData[field] = body[field]
@@ -31,21 +31,21 @@ export async function PATCH(
       return NextResponse.json({ error: '업데이트할 필드가 없습니다.' }, { status: 400 })
     }
 
-    const { data: category, error } = await db
-      .from('categories')
+    const { data: tag, error } = await db
+      .from('tags')
       .update(updateData)
       .eq('id', id)
       .select()
       .single()
 
-    if (error || !category) {
-      console.error('Error updating category:', error)
-      return NextResponse.json({ error: '카테고리 업데이트 중 오류가 발생했습니다.' }, { status: 500 })
+    if (error || !tag) {
+      console.error('Error updating tag:', error)
+      return NextResponse.json({ error: '태그 업데이트 중 오류가 발생했습니다.' }, { status: 500 })
     }
 
-    return NextResponse.json({ category })
+    return NextResponse.json({ tag })
   } catch (err) {
-    console.error('PATCH /api/categories/[id] error:', err)
+    console.error('PATCH /api/tags/[id] error:', err)
     return NextResponse.json({ error: '서버 오류가 발생했습니다.' }, { status: 500 })
   }
 }
@@ -64,28 +64,19 @@ export async function DELETE(
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const db = createAdminClient() as any
 
-    const { count } = await db
-      .from('posts')
-      .select('*', { count: 'exact', head: true })
-      .eq('category_id', id)
+    // Clean up post_tags associations first
+    await db.from('post_tags').delete().eq('tag_id', id)
 
-    if (count && count > 0) {
-      return NextResponse.json(
-        { error: `이 카테고리에 포스트 ${count}개가 연결되어 있어 삭제할 수 없습니다.` },
-        { status: 409 }
-      )
-    }
-
-    const { error } = await db.from('categories').delete().eq('id', id)
+    const { error } = await db.from('tags').delete().eq('id', id)
 
     if (error) {
-      console.error('Error deleting category:', error)
-      return NextResponse.json({ error: '카테고리 삭제 중 오류가 발생했습니다.' }, { status: 500 })
+      console.error('Error deleting tag:', error)
+      return NextResponse.json({ error: '태그 삭제 중 오류가 발생했습니다.' }, { status: 500 })
     }
 
     return NextResponse.json({ success: true })
   } catch (err) {
-    console.error('DELETE /api/categories/[id] error:', err)
+    console.error('DELETE /api/tags/[id] error:', err)
     return NextResponse.json({ error: '서버 오류가 발생했습니다.' }, { status: 500 })
   }
 }

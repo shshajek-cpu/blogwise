@@ -91,6 +91,7 @@ export default function NewPostPage() {
         seo_keywords: seoKeywords || null,
         ai_provider: aiProvider || null,
         source_url: sourceUrl || null,
+        tags: tags.length > 0 ? tags : undefined,
       }
       if (status === "published") {
         body.published_at = new Date().toISOString()

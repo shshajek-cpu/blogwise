@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { revalidatePath } from 'next/cache'
+import { rateLimit } from '@/lib/rateLimit'
 import { createClient, createAdminClient } from '@/lib/supabase/server'
 import { getAllTrends } from '@/lib/crawl/trends'
 import { analyzeKeyword, rankTopicsByRevenue, type KeywordAnalysis } from '@/lib/crawl/analyzer'
@@ -124,6 +125,7 @@ ${categoryGuide}
 - 완벽하게 정돈된 문장보다 약간의 구어적 표현이 더 자연스럽습니다.
 - 문단 길이를 다양하게 하세요 (1줄짜리도, 5줄짜리도 섞어주세요).
 - 이모지는 쓰지 마세요.
+- 반드시 한국어로만 작성하세요. 중국어(한자), 일본어 등 다른 언어의 문자를 절대 사용하지 마세요. 예: "經濟", "金融" 같은 한자 표기 금지. 반드시 "경제", "금융"처럼 한글로만 쓰세요.
 
 [절대 금지 - AI 티가 나는 표현]
 - "오늘은 ~에 대해 알아보겠습니다" (금지! 너무 기계적)
@@ -331,6 +333,9 @@ const MOCK_POSTS: GeneratedPost[] = [
 ]
 
 export async function POST(request: NextRequest) {
+  const rateLimitResponse = rateLimit(request, { max: 5, windowMs: 60_000 })
+  if (rateLimitResponse) return rateLimitResponse
+
   try {
     // Auth check - capture userId for author_id on post inserts
     let userId: string | null = null

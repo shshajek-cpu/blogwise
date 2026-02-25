@@ -72,6 +72,7 @@ export default function EditPostPage() {
 
         setTitle(post.title ?? "")
         setSlug(post.slug ?? "")
+        setInitialSlug(post.slug ?? "")
         setCategoryId(
           typeof post.category === "object" && post.category !== null
             ? post.category.id
@@ -106,9 +107,15 @@ export default function EditPostPage() {
     fetchData()
   }, [postId])
 
+  // In edit mode, preserve existing slug when title changes
+  const [initialSlug, setInitialSlug] = useState("")
+
   const handleTitleChange = (value: string) => {
     setTitle(value)
-    setSlug(slugify(value))
+    // Only auto-generate slug if no existing slug was loaded (new-ish post)
+    if (!initialSlug) {
+      setSlug(slugify(value))
+    }
   }
 
   const handleTagKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -277,7 +284,7 @@ export default function EditPostPage() {
             </button>
           )}
           <button
-            onClick={() => handleSave(isPublished ? "published" : "published")}
+            onClick={() => handleSave(isPublished ? undefined : "published")}
             disabled={saving || deleting}
             className="px-4 py-2 text-sm font-medium rounded-md bg-primary-600 text-white hover:bg-primary-700 disabled:opacity-50 transition-colors"
           >
@@ -500,7 +507,7 @@ export default function EditPostPage() {
             </button>
           )}
           <button
-            onClick={() => handleSave(isPublished ? "published" : "published")}
+            onClick={() => handleSave(isPublished ? undefined : "published")}
             disabled={saving || deleting}
             className="px-4 py-2 text-sm font-medium rounded-md bg-primary-600 text-white hover:bg-primary-700 disabled:opacity-50 transition-colors"
           >

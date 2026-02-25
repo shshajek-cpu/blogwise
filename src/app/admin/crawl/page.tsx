@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import { cn } from "@/lib/utils/cn";
 
 // ── Shared Interfaces ────────────────────────────────────────────────────────
@@ -179,12 +179,11 @@ const providerModelMap: Record<string, string> = {
 
 // ── Top-level tabs ───────────────────────────────────────────────────────────
 
-type TopTab = "pipeline" | "manual" | "sources" | "trends";
+type TopTab = "pipeline" | "manual" | "sources";
 const TOP_TABS: { key: TopTab; label: string }[] = [
   { key: "pipeline", label: "파이프라인" },
   { key: "manual", label: "수동 생성" },
   { key: "sources", label: "소스 관리" },
-  { key: "trends", label: "트렌드" },
 ];
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -206,6 +205,7 @@ export default function CrawlPage() {
   const [pipelineKeyword, setPipelineKeyword] = useState("");
   const [deletingSourceId, setDeletingSourceId] = useState<string | null>(null);
   const [showModal, setShowModal] = useState(false);
+  const [editingSourceId, setEditingSourceId] = useState<string | null>(null);
   const [modalName, setModalName] = useState("");
   const [modalPlatform, setModalPlatform] = useState("naver_blog");
   const [modalUrl, setModalUrl] = useState("");
@@ -221,6 +221,21 @@ export default function CrawlPage() {
   const [genPersona, setGenPersona] = useState<string>("");
   const [genCategoryStyle, setGenCategoryStyle] = useState<string>("");
   const [showGenOptions, setShowGenOptions] = useState(false);
+
+  // ── Timer ref for pipeline step timeouts ─────────────────────────────────
+  const stepTimersRef = useRef<NodeJS.Timeout[]>([]);
+  const clearStepTimers = useCallback(() => {
+    stepTimersRef.current.forEach(clearTimeout);
+    stepTimersRef.current = [];
+  }, []);
+
+  // cleanup on unmount
+  useEffect(() => {
+    const ref = stepTimersRef;
+    return () => {
+      ref.current.forEach(clearTimeout);
+    };
+  }, []);
 
   // ── Manual generation state ──────────────────────────────────────────────
   const [manualStep, setManualStep] = useState(1);
@@ -254,7 +269,14 @@ export default function CrawlPage() {
       const res = await fetch("/api/crawl/sources");
       if (!res.ok) throw new Error("sources fetch failed");
       const data = await res.json();
-      setSources(data.sources ?? data);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const mapped = (data.sources ?? data ?? []).map((s: any) => ({
+        ...s,
+        status: s.status ?? (s.is_active ? "active" : "inactive"),
+        lastCrawled: s.lastCrawled ?? s.last_crawled_at ?? "",
+        itemCount: s.itemCount ?? s.total_items ?? 0,
+      }));
+      setSources(mapped);
     } catch {
       setSources(MOCK_SOURCES);
     } finally {
@@ -354,7 +376,7 @@ export default function CrawlPage() {
       const res = await fetch(`/api/crawl/sources/${id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status: newStatus }),
+        body: JSON.stringify({ is_active: newStatus === "active" }),
       });
       if (!res.ok) throw new Error();
     } catch {
@@ -437,6 +459,42 @@ export default function CrawlPage() {
     }
   };
 
+  // ── Open modal for editing an existing source ─────────────────────────
+  const openEditModal = (source: CrawlSource) => {
+    setEditingSourceId(source.id);
+    setModalName(source.name);
+    setModalPlatform(source.platform);
+    setModalUrl(source.url);
+    setShowModal(true);
+  };
+
+  const submitEditSource = async () => {
+    if (!editingSourceId || !modalName.trim() || !modalUrl.trim()) {
+      alert("소스명과 URL을 입력해주세요.");
+      return;
+    }
+    setModalSubmitting(true);
+    try {
+      const res = await fetch(`/api/crawl/sources/${editingSourceId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: modalName, platform: modalPlatform, url: modalUrl }),
+      });
+      if (!res.ok) throw new Error();
+      alert("소스가 수정되었습니다.");
+      setShowModal(false);
+      setEditingSourceId(null);
+      setModalName("");
+      setModalPlatform("naver_blog");
+      setModalUrl("");
+      await fetchSources();
+    } catch {
+      alert("소스 수정에 실패했습니다.");
+    } finally {
+      setModalSubmitting(false);
+    }
+  };
+
   // ── Map API response to PipelineResult ──────────────────────────────────
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const mapPipelineResponse = (data: any): PipelineResult => ({
@@ -456,12 +514,13 @@ export default function CrawlPage() {
 
   // ── Pipeline: generate content for a keyword ─────────────────────────────
   const generateForKeyword = async (keyword: string) => {
+    clearStepTimers();
     setPipelineRunning(true);
     setPipelineStep("trends");
     setPipelineKeyword(keyword);
     try {
-      setTimeout(() => setPipelineStep("benchmark"), 2000);
-      setTimeout(() => setPipelineStep("generate"), 6000);
+      stepTimersRef.current.push(setTimeout(() => setPipelineStep("benchmark"), 2000));
+      stepTimersRef.current.push(setTimeout(() => setPipelineStep("generate"), 6000));
 
       const res = await fetch("/api/pipeline", {
         method: "POST",
@@ -477,6 +536,7 @@ export default function CrawlPage() {
       });
 
       const data = await res.json();
+      clearStepTimers();
 
       if (!res.ok) {
         setPipelineStep("error");
@@ -493,6 +553,7 @@ export default function CrawlPage() {
       setPipelineStep("done");
       setPipelineResult(mapPipelineResponse(data));
     } catch (err) {
+      clearStepTimers();
       setPipelineStep("error");
       setPipelineResult({
         executedAt: new Date().toLocaleString("ko-KR"),
@@ -503,7 +564,8 @@ export default function CrawlPage() {
       });
     } finally {
       setPipelineRunning(false);
-      setTimeout(() => { setPipelineStep("idle"); setPipelineKeyword(""); }, 3000);
+      const t = setTimeout(() => { setPipelineStep("idle"); setPipelineKeyword(""); }, 3000);
+      stepTimersRef.current.push(t);
     }
   };
 
@@ -597,17 +659,19 @@ export default function CrawlPage() {
     });
     setSelectedKeywords(new Set());
     setBatchGenerating(false);
-    setTimeout(() => { setPipelineStep("idle"); }, 3000);
+    const t = setTimeout(() => { setPipelineStep("idle"); }, 3000);
+    stepTimersRef.current.push(t);
   };
 
   // ── Pipeline: auto mode ──────────────────────────────────────────────────
   const runAutoPipeline = async () => {
+    clearStepTimers();
     setPipelineRunning(true);
     setPipelineStep("trends");
     setPipelineKeyword("");
     try {
-      setTimeout(() => setPipelineStep("benchmark"), 3000);
-      setTimeout(() => setPipelineStep("generate"), 8000);
+      stepTimersRef.current.push(setTimeout(() => setPipelineStep("benchmark"), 3000));
+      stepTimersRef.current.push(setTimeout(() => setPipelineStep("generate"), 8000));
 
       const res = await fetch("/api/pipeline", {
         method: "POST",
@@ -623,6 +687,7 @@ export default function CrawlPage() {
       });
 
       const data = await res.json();
+      clearStepTimers();
 
       if (!res.ok) {
         setPipelineStep("error");
@@ -639,6 +704,7 @@ export default function CrawlPage() {
       setPipelineStep("done");
       setPipelineResult(mapPipelineResponse(data));
     } catch (err) {
+      clearStepTimers();
       setPipelineStep("error");
       setPipelineResult({
         executedAt: new Date().toLocaleString("ko-KR"),
@@ -649,7 +715,8 @@ export default function CrawlPage() {
       });
     } finally {
       setPipelineRunning(false);
-      setTimeout(() => { setPipelineStep("idle"); setPipelineKeyword(""); }, 3000);
+      const t = setTimeout(() => { setPipelineStep("idle"); setPipelineKeyword(""); }, 3000);
+      stepTimersRef.current.push(t);
     }
   };
 
@@ -1057,8 +1124,8 @@ export default function CrawlPage() {
               )}
               <span className="text-xs text-gray-400">
                 {selectedKeywords.size > 0
-                  ? `${selectedKeywords.size}개 선택됨 — 트렌드 탭에서 키워드를 선택/해제하세요`
-                  : "트렌드 탭에서 키워드를 선택하거나, 자동 생성을 사용하세요"}
+                  ? `${selectedKeywords.size}개 선택됨 — 아래 키워드 목록에서 선택/해제하세요`
+                  : "아래 키워드 목록에서 선택하거나, 자동 생성을 사용하세요"}
               </span>
             </div>
 
@@ -1096,6 +1163,188 @@ export default function CrawlPage() {
             ) : !pipelineRunning ? (
               <p className="text-xs text-gray-400">아직 실행 이력이 없습니다. 위 버튼을 눌러 자동 생성을 시작하세요.</p>
             ) : null}
+          </div>
+
+          {/* ── Trends section (integrated into pipeline tab) ──────────────── */}
+          <div className="bg-white rounded-lg border border-gray-200 shadow-sm overflow-hidden">
+            <div className="px-6 py-4 border-b border-gray-200">
+              <div className="flex items-center justify-between mb-3">
+                <h2 className="text-sm font-semibold text-gray-700 flex items-center gap-2">
+                  키워드 발굴 (애드센스 최적화)
+                </h2>
+                {lastFetched && (
+                  <span className="text-xs text-gray-400">
+                    마지막 갱신: {lastFetched.toLocaleTimeString("ko-KR")}
+                  </span>
+                )}
+              </div>
+              <div className="flex items-center gap-3 mb-4">
+                <button
+                  onClick={fetchTrends}
+                  disabled={trendsLoading}
+                  className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg bg-gradient-to-r from-blue-600 to-indigo-600 text-white hover:from-blue-700 hover:to-indigo-700 transition-all shadow-sm disabled:opacity-50"
+                >
+                  {trendsLoading ? (
+                    <span className="inline-block h-4 w-4 rounded-full border-2 border-white border-t-transparent animate-spin" />
+                  ) : (
+                    <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                    </svg>
+                  )}
+                  키워드 갱신
+                </button>
+                <div className="flex items-center gap-4 text-xs text-gray-500">
+                  <span className="flex items-center gap-1">
+                    <span className="w-2 h-2 rounded-full bg-blue-400"></span>
+                    Google
+                  </span>
+                  <span className="flex items-center gap-1">
+                    <span className="w-2 h-2 rounded-full bg-green-400"></span>
+                    Naver
+                  </span>
+                  <span className="flex items-center gap-1">
+                    <span className="w-2 h-2 rounded-full bg-emerald-400"></span>
+                    Evergreen
+                  </span>
+                  {trends.length > 0 && (
+                    <span className="ml-2 px-2 py-0.5 rounded-full bg-green-50 text-green-700 font-medium">
+                      고수익 키워드 {trends.filter(t => t.revenuePotential === "high").length}개
+                    </span>
+                  )}
+                </div>
+              </div>
+              {/* Keyword type tabs */}
+              <div className="flex items-center gap-1 p-1 bg-gray-100 rounded-lg w-fit">
+                {KEYWORD_TYPE_TABS.map((tab) => (
+                  <button
+                    key={tab.key}
+                    onClick={() => setKeywordTypeFilter(tab.key)}
+                    title={tab.desc}
+                    className={cn(
+                      "px-3 py-1.5 text-xs font-medium rounded-md transition-all",
+                      keywordTypeFilter === tab.key
+                        ? "bg-white text-gray-900 shadow-sm"
+                        : "text-gray-500 hover:text-gray-700"
+                    )}
+                  >
+                    {tab.label}
+                    <span className="ml-1 text-[10px] text-gray-400">
+                      {tab.key === "all"
+                        ? trends.length
+                        : tab.key === "trending"
+                        ? trends.filter(t => !t.keywordType || t.keywordType === "trending").length
+                        : trends.filter(t => t.keywordType === tab.key).length}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {trendsLoading ? (
+              <div className="p-6 space-y-3">
+                {[1, 2, 3].map((i) => (
+                  <div key={i} className="h-10 bg-gray-100 rounded animate-pulse" />
+                ))}
+              </div>
+            ) : trends.length === 0 ? (
+              <div className="px-6 py-10 text-center text-sm text-gray-400">
+                키워드가 없습니다. 키워드 갱신 버튼을 눌러 분석하세요.
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="bg-gray-50 border-b border-gray-200">
+                      <th className="px-4 py-3 w-10">
+                        <input
+                          type="checkbox"
+                          checked={filteredTrends.length > 0 && filteredTrends.every((t) => selectedKeywords.has(t.keyword))}
+                          onChange={toggleAllFiltered}
+                          className="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                          title="전체 선택/해제"
+                        />
+                      </th>
+                      <th className="text-left px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider w-8">#</th>
+                      <th className="text-left px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">키워드</th>
+                      <th className="text-left px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">유형</th>
+                      <th className="text-left px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">카테고리</th>
+                      <th className="text-left px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">수요 점수</th>
+                      <th className="text-left px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">예상 CPC</th>
+                      <th className="text-left px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">수익 잠재력</th>
+                      <th className="text-right px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">액션</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {filteredTrends.map((topic, idx) => {
+                      const typeBadge = keywordTypeBadge[topic.keywordType ?? "trending"] ?? keywordTypeBadge.trending;
+                      const isSelected = selectedKeywords.has(topic.keyword);
+                      return (
+                        <tr
+                          key={topic.keyword}
+                          className={cn(
+                            "hover:bg-gray-50 transition-colors group cursor-pointer",
+                            isSelected && "bg-indigo-50/50"
+                          )}
+                          onClick={() => toggleKeyword(topic.keyword)}
+                        >
+                          <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
+                            <input
+                              type="checkbox"
+                              checked={isSelected}
+                              onChange={() => toggleKeyword(topic.keyword)}
+                              className="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                            />
+                          </td>
+                          <td className="px-6 py-3 text-gray-400 text-xs">{idx + 1}</td>
+                          <td className="px-6 py-3">
+                            <div>
+                              <span className="font-medium text-gray-900">{topic.keyword}</span>
+                              {topic.reason && (
+                                <p className="text-[11px] text-gray-400 mt-0.5 hidden group-hover:block">{topic.reason}</p>
+                              )}
+                            </div>
+                          </td>
+                          <td className="px-6 py-3">
+                            <span className={cn("text-[11px] font-medium px-2 py-0.5 rounded-full border", typeBadge.color)}>
+                              {typeBadge.label}
+                            </span>
+                          </td>
+                          <td className="px-6 py-3">
+                            <span className="text-xs text-gray-600">{topic.category ?? "—"}</span>
+                          </td>
+                          <td className="px-6 py-3">
+                            <span className="flex items-center gap-1">
+                              {trendIcon(topic.trendScore)}
+                              <span className="font-semibold text-gray-700">{topic.trendScore}</span>
+                            </span>
+                          </td>
+                          <td className="px-6 py-3 text-gray-600">${topic.estimatedCPC?.toFixed(2) ?? "—"}</td>
+                          <td className="px-6 py-3">
+                            <span className={cn("font-mono text-sm", revenueColor[topic.revenuePotential])}>
+                              {revenueBars[topic.revenuePotential]}
+                            </span>
+                          </td>
+                          <td className="px-6 py-3 text-right">
+                            <button
+                              onClick={(e) => { e.stopPropagation(); generateForKeyword(topic.keyword); }}
+                              disabled={pipelineRunning}
+                              className={cn(
+                                "inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium rounded-md border transition-colors disabled:opacity-50",
+                                topic.revenuePotential === "high"
+                                  ? "bg-green-50 text-green-700 hover:bg-green-100 border-green-200"
+                                  : "bg-gray-50 text-gray-600 hover:bg-gray-100 border-gray-200"
+                              )}
+                            >
+                              AI 생성
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
         </>
       )}
@@ -1521,7 +1770,7 @@ export default function CrawlPage() {
         <>
           <div className="flex items-center justify-end">
             <button
-              onClick={() => setShowModal(true)}
+              onClick={() => { setEditingSourceId(null); setModalName(""); setModalPlatform("naver_blog"); setModalUrl(""); setShowModal(true); }}
               className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-md bg-primary-600 text-white hover:bg-primary-700 transition-colors"
             >
               <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -1613,7 +1862,7 @@ export default function CrawlPage() {
                             >
                               {crawlingSourceId === source.id ? "실행중..." : "크롤링"}
                             </button>
-                            <button className="text-xs text-gray-500 hover:text-gray-700 font-medium">수정</button>
+                            <button onClick={() => openEditModal(source)} className="text-xs text-gray-500 hover:text-gray-700 font-medium">수정</button>
                             <button
                               onClick={() => deleteSource(source.id)}
                               disabled={deletingSourceId === source.id}
@@ -1633,195 +1882,11 @@ export default function CrawlPage() {
         </>
       )}
 
-      {/* ── Tab: Trends ─────────────────────────────────────────────────────── */}
-      {activeTab === "trends" && (
-        <div className="bg-white rounded-lg border border-gray-200 shadow-sm overflow-hidden">
-          <div className="px-6 py-4 border-b border-gray-200">
-            <div className="flex items-center justify-between mb-3">
-              <h2 className="text-sm font-semibold text-gray-700 flex items-center gap-2">
-                키워드 발굴 (애드센스 최적화)
-              </h2>
-              {lastFetched && (
-                <span className="text-xs text-gray-400">
-                  마지막 갱신: {lastFetched.toLocaleTimeString("ko-KR")}
-                </span>
-              )}
-            </div>
-            <div className="flex items-center gap-3 mb-4">
-              <button
-                onClick={fetchTrends}
-                disabled={trendsLoading}
-                className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg bg-gradient-to-r from-blue-600 to-indigo-600 text-white hover:from-blue-700 hover:to-indigo-700 transition-all shadow-sm disabled:opacity-50"
-              >
-                {trendsLoading ? (
-                  <span className="inline-block h-4 w-4 rounded-full border-2 border-white border-t-transparent animate-spin" />
-                ) : (
-                  <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                  </svg>
-                )}
-                키워드 갱신
-              </button>
-              <div className="flex items-center gap-4 text-xs text-gray-500">
-                <span className="flex items-center gap-1">
-                  <span className="w-2 h-2 rounded-full bg-blue-400"></span>
-                  Google
-                </span>
-                <span className="flex items-center gap-1">
-                  <span className="w-2 h-2 rounded-full bg-green-400"></span>
-                  Naver
-                </span>
-                <span className="flex items-center gap-1">
-                  <span className="w-2 h-2 rounded-full bg-emerald-400"></span>
-                  Evergreen
-                </span>
-                {trends.length > 0 && (
-                  <span className="ml-2 px-2 py-0.5 rounded-full bg-green-50 text-green-700 font-medium">
-                    고수익 키워드 {trends.filter(t => t.revenuePotential === "high").length}개
-                  </span>
-                )}
-              </div>
-            </div>
-            {/* Keyword type tabs */}
-            <div className="flex items-center gap-1 p-1 bg-gray-100 rounded-lg w-fit">
-              {KEYWORD_TYPE_TABS.map((tab) => (
-                <button
-                  key={tab.key}
-                  onClick={() => setKeywordTypeFilter(tab.key)}
-                  title={tab.desc}
-                  className={cn(
-                    "px-3 py-1.5 text-xs font-medium rounded-md transition-all",
-                    keywordTypeFilter === tab.key
-                      ? "bg-white text-gray-900 shadow-sm"
-                      : "text-gray-500 hover:text-gray-700"
-                  )}
-                >
-                  {tab.label}
-                  <span className="ml-1 text-[10px] text-gray-400">
-                    {tab.key === "all"
-                      ? trends.length
-                      : tab.key === "trending"
-                      ? trends.filter(t => !t.keywordType || t.keywordType === "trending").length
-                      : trends.filter(t => t.keywordType === tab.key).length}
-                  </span>
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {trendsLoading ? (
-            <div className="p-6 space-y-3">
-              {[1, 2, 3].map((i) => (
-                <div key={i} className="h-10 bg-gray-100 rounded animate-pulse" />
-              ))}
-            </div>
-          ) : trends.length === 0 ? (
-            <div className="px-6 py-10 text-center text-sm text-gray-400">
-              키워드가 없습니다. 키워드 갱신 버튼을 눌러 분석하세요.
-            </div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="bg-gray-50 border-b border-gray-200">
-                    <th className="px-4 py-3 w-10">
-                      <input
-                        type="checkbox"
-                        checked={filteredTrends.length > 0 && filteredTrends.every((t) => selectedKeywords.has(t.keyword))}
-                        onChange={toggleAllFiltered}
-                        className="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
-                        title="전체 선택/해제"
-                      />
-                    </th>
-                    <th className="text-left px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider w-8">#</th>
-                    <th className="text-left px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">키워드</th>
-                    <th className="text-left px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">유형</th>
-                    <th className="text-left px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">카테고리</th>
-                    <th className="text-left px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">수요 점수</th>
-                    <th className="text-left px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">예상 CPC</th>
-                    <th className="text-left px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">수익 잠재력</th>
-                    <th className="text-right px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">액션</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-100">
-                  {filteredTrends.map((topic, idx) => {
-                    const typeBadge = keywordTypeBadge[topic.keywordType ?? "trending"] ?? keywordTypeBadge.trending;
-                    const isSelected = selectedKeywords.has(topic.keyword);
-                    return (
-                      <tr
-                        key={topic.keyword}
-                        className={cn(
-                          "hover:bg-gray-50 transition-colors group cursor-pointer",
-                          isSelected && "bg-indigo-50/50"
-                        )}
-                        onClick={() => toggleKeyword(topic.keyword)}
-                      >
-                        <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
-                          <input
-                            type="checkbox"
-                            checked={isSelected}
-                            onChange={() => toggleKeyword(topic.keyword)}
-                            className="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
-                          />
-                        </td>
-                        <td className="px-6 py-3 text-gray-400 text-xs">{idx + 1}</td>
-                        <td className="px-6 py-3">
-                          <div>
-                            <span className="font-medium text-gray-900">{topic.keyword}</span>
-                            {topic.reason && (
-                              <p className="text-[11px] text-gray-400 mt-0.5 hidden group-hover:block">{topic.reason}</p>
-                            )}
-                          </div>
-                        </td>
-                        <td className="px-6 py-3">
-                          <span className={cn("text-[11px] font-medium px-2 py-0.5 rounded-full border", typeBadge.color)}>
-                            {typeBadge.label}
-                          </span>
-                        </td>
-                        <td className="px-6 py-3">
-                          <span className="text-xs text-gray-600">{topic.category ?? "—"}</span>
-                        </td>
-                        <td className="px-6 py-3">
-                          <span className="flex items-center gap-1">
-                            {trendIcon(topic.trendScore)}
-                            <span className="font-semibold text-gray-700">{topic.trendScore}</span>
-                          </span>
-                        </td>
-                        <td className="px-6 py-3 text-gray-600">${topic.estimatedCPC?.toFixed(2) ?? "—"}</td>
-                        <td className="px-6 py-3">
-                          <span className={cn("font-mono text-sm", revenueColor[topic.revenuePotential])}>
-                            {revenueBars[topic.revenuePotential]}
-                          </span>
-                        </td>
-                        <td className="px-6 py-3 text-right">
-                          <button
-                            onClick={(e) => { e.stopPropagation(); generateForKeyword(topic.keyword); }}
-                            disabled={pipelineRunning}
-                            className={cn(
-                              "inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium rounded-md border transition-colors disabled:opacity-50",
-                              topic.revenuePotential === "high"
-                                ? "bg-green-50 text-green-700 hover:bg-green-100 border-green-200"
-                                : "bg-gray-50 text-gray-600 hover:bg-gray-100 border-gray-200"
-                            )}
-                          >
-                            AI 생성
-                          </button>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
-      )}
-
       {/* ── Add Source Modal ─────────────────────────────────────────────────── */}
       {showModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
           <div className="bg-white rounded-xl border border-gray-200 shadow-lg w-full max-w-md p-6">
-            <h2 className="text-lg font-semibold text-gray-900 mb-4">소스 추가</h2>
+            <h2 className="text-lg font-semibold text-gray-900 mb-4">{editingSourceId ? "소스 수정" : "소스 추가"}</h2>
             <div className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">소스명</label>
@@ -1860,6 +1925,7 @@ export default function CrawlPage() {
               <button
                 onClick={() => {
                   setShowModal(false);
+                  setEditingSourceId(null);
                   setModalName("");
                   setModalPlatform("naver_blog");
                   setModalUrl("");
@@ -1870,14 +1936,14 @@ export default function CrawlPage() {
                 취소
               </button>
               <button
-                onClick={submitAddSource}
+                onClick={editingSourceId ? submitEditSource : submitAddSource}
                 disabled={modalSubmitting}
                 className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-md bg-primary-600 text-white hover:bg-primary-700 transition-colors disabled:opacity-60"
               >
                 {modalSubmitting && (
                   <span className="inline-block h-3.5 w-3.5 rounded-full border-2 border-white border-t-transparent animate-spin" />
                 )}
-                추가하기
+                {editingSourceId ? "수정하기" : "추가하기"}
               </button>
             </div>
           </div>

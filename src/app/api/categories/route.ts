@@ -52,6 +52,10 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: '이름과 슬러그는 필수입니다.' }, { status: 400 })
     }
 
+    if (slug && !/^[a-z0-9가-힣]+(?:-[a-z0-9가-힣]+)*$/.test(slug)) {
+      return NextResponse.json({ error: '슬러그 형식이 올바르지 않습니다.' }, { status: 400 })
+    }
+
     const { data: category, error } = await db
       .from('categories')
       .insert({ name, slug, description: description ?? null, color: color ?? null })

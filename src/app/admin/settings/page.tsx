@@ -84,6 +84,8 @@ function useSaveState() {
 }
 
 export default function SettingsPage() {
+  const [loading, setLoading] = useState(true);
+
   // Site settings
   const [siteName, setSiteName] = useState("Blogwise");
   const [siteDesc, setSiteDesc] = useState("AI 기반 자동 블로그 시스템");
@@ -92,10 +94,10 @@ export default function SettingsPage() {
   const [lang, setLang] = useState("ko");
 
   // AI settings
-  const [openaiKey, setOpenaiKey] = useState("sk-••••••••••••••••••••••••••");
-  const [claudeKey, setClaudeKey] = useState("sk-ant-••••••••••••••••••••••");
-  const [geminiKey, setGeminiKey] = useState("AIza••••••••••••••••••••••••••");
-  const [moonshotKey, setMoonshotKey] = useState("sk-••••••••••••••••••••••••••");
+  const [openaiKey, setOpenaiKey] = useState("");
+  const [claudeKey, setClaudeKey] = useState("");
+  const [geminiKey, setGeminiKey] = useState("");
+  const [moonshotKey, setMoonshotKey] = useState("");
   const [moonshotModel, setMoonshotModel] = useState("kimi-2.5");
   const [defaultProvider, setDefaultProvider] = useState("claude");
   const [maxTokens, setMaxTokens] = useState("4000");
@@ -125,6 +127,7 @@ export default function SettingsPage() {
         if (!res.ok) return;
         const data = await res.json();
 
+
         // API returns { settings: { key: value } } — flat key-value from site_settings table
         // OR for mock mode: { settings: { site_name, site_description, ... } }
         const s: Record<string, unknown> = data.settings ?? {};
@@ -139,7 +142,7 @@ export default function SettingsPage() {
         // AI
         if (s.default_ai_provider !== undefined) setDefaultProvider(String(s.default_ai_provider));
         if (s.max_tokens !== undefined) setMaxTokens(String(s.max_tokens));
-        // API keys: only overwrite placeholder if the DB has a real value
+        // API keys arrive masked from server; keep state empty so placeholder shows
         if (s.openai_api_key) setOpenaiKey(String(s.openai_api_key));
         if (s.claude_api_key) setClaudeKey(String(s.claude_api_key));
         if (s.gemini_api_key) setGeminiKey(String(s.gemini_api_key));
@@ -159,6 +162,8 @@ export default function SettingsPage() {
         if (s.crawl_user_agent !== undefined) setUserAgent(String(s.crawl_user_agent));
       } catch {
         // Keep defaults on error
+      } finally {
+        setLoading(false);
       }
     }
     loadSettings();
@@ -178,7 +183,10 @@ export default function SettingsPage() {
           default_language: lang,
         }),
       });
-      if (!res.ok) throw new Error("사이트 설정 저장에 실패했습니다.");
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error ?? "저장에 실패했습니다.");
+      }
     });
 
   const saveAiSettings = () =>
@@ -196,7 +204,10 @@ export default function SettingsPage() {
           moonshot_model: moonshotModel,
         }),
       });
-      if (!res.ok) throw new Error("AI 설정 저장에 실패했습니다.");
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error ?? "저장에 실패했습니다.");
+      }
     });
 
   const saveAdsenseSettings = () =>
@@ -211,7 +222,10 @@ export default function SettingsPage() {
           adsense_ad_unit_2: adUnit2,
         }),
       });
-      if (!res.ok) throw new Error("애드센스 설정 저장에 실패했습니다.");
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error ?? "저장에 실패했습니다.");
+      }
     });
 
   const saveCrawlSettings = () =>
@@ -226,7 +240,10 @@ export default function SettingsPage() {
           crawl_user_agent: userAgent,
         }),
       });
-      if (!res.ok) throw new Error("크롤링 설정 저장에 실패했습니다.");
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error ?? "저장에 실패했습니다.");
+      }
     });
 
   return (
@@ -241,7 +258,7 @@ export default function SettingsPage() {
         title="사이트 기본 설정"
         description="블로그의 기본 정보를 설정합니다."
         onSave={saveSiteSettings}
-        saving={siteSave.saving}
+        saving={loading || siteSave.saving}
         saveError={siteSave.error}
         saveSuccess={siteSave.success}
       >
@@ -273,7 +290,7 @@ export default function SettingsPage() {
         title="AI 설정"
         description="AI 글 생성에 사용할 API 키와 설정을 입력합니다."
         onSave={saveAiSettings}
-        saving={aiSave.saving}
+        saving={loading || aiSave.saving}
         saveError={aiSave.error}
         saveSuccess={aiSave.success}
       >
@@ -291,7 +308,7 @@ export default function SettingsPage() {
             value={openaiKey}
             onChange={(e) => setOpenaiKey(e.target.value)}
             className={inputClass}
-            placeholder="sk-..."
+            placeholder="변경하려면 새 키를 입력하세요"
           />
         </FormField>
         <FormField label="Anthropic API Key" hint="sk-ant-로 시작하는 키">
@@ -300,7 +317,7 @@ export default function SettingsPage() {
             value={claudeKey}
             onChange={(e) => setClaudeKey(e.target.value)}
             className={inputClass}
-            placeholder="sk-ant-..."
+            placeholder="변경하려면 새 키를 입력하세요"
           />
         </FormField>
         <FormField label="Google Gemini API Key">
@@ -309,7 +326,7 @@ export default function SettingsPage() {
             value={geminiKey}
             onChange={(e) => setGeminiKey(e.target.value)}
             className={inputClass}
-            placeholder="AIza..."
+            placeholder="변경하려면 새 키를 입력하세요"
           />
         </FormField>
         <FormField label="Moonshot API Key" hint="Kimi 2.5 API 키 (sk-로 시작)">
@@ -318,7 +335,7 @@ export default function SettingsPage() {
             value={moonshotKey}
             onChange={(e) => setMoonshotKey(e.target.value)}
             className={inputClass}
-            placeholder="sk-..."
+            placeholder="변경하려면 새 키를 입력하세요"
           />
         </FormField>
         <FormField label="Kimi 모델" hint="Moonshot AI 모델 버전">
@@ -341,7 +358,7 @@ export default function SettingsPage() {
         title="애드센스 설정"
         description="Google AdSense 광고 설정을 관리합니다."
         onSave={saveAdsenseSettings}
-        saving={adsenseSave.saving}
+        saving={loading || adsenseSave.saving}
         saveError={adsenseSave.error}
         saveSuccess={adsenseSave.success}
       >
@@ -393,7 +410,7 @@ export default function SettingsPage() {
         title="크롤링 설정"
         description="자동 크롤링 주기와 옵션을 설정합니다."
         onSave={saveCrawlSettings}
-        saving={crawlSave.saving}
+        saving={loading || crawlSave.saving}
         saveError={crawlSave.error}
         saveSuccess={crawlSave.success}
       >

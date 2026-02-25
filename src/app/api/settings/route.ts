@@ -6,6 +6,24 @@ const isConfigured = !!(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 )
 
+const ALLOWED_KEYS = new Set([
+  'site_name', 'site_description', 'site_url', 'posts_per_page',
+  'default_ai_provider', 'moonshot_model', 'max_tokens',
+  'openai_api_key', 'moonshot_api_key', 'claude_api_key', 'gemini_api_key',
+  'auto_publish', 'content_tone', 'target_word_count',
+  'ga_measurement_id', 'adsense_client_id', 'adsense_slot_ids',
+  // Legacy keys still accepted
+  'default_language', 'crawl_enabled', 'crawl_interval_minutes',
+  'crawl_max_items', 'crawl_user_agent', 'adsense_enabled',
+  'adsense_publisher_id', 'adsense_ad_unit_1', 'adsense_ad_unit_2',
+])
+
+const SENSITIVE_KEYS = new Set([
+  'openai_api_key', 'moonshot_api_key', 'claude_api_key', 'gemini_api_key',
+])
+
+const MASKED_VALUE = '••••••••'
+
 const mockSettings = {
   site_name: 'Blogwise',
   site_description: 'AI 기반 자동 블로그 시스템',
@@ -42,7 +60,11 @@ export async function GET() {
     const settings: Record<string, unknown> = {}
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     for (const row of (data ?? []) as any[]) {
-      settings[row.key] = row.value
+      if (SENSITIVE_KEYS.has(row.key)) {
+        settings[row.key] = row.value ? MASKED_VALUE : ''
+      } else {
+        settings[row.key] = row.value
+      }
     }
 
     return NextResponse.json({ settings })
@@ -66,11 +88,13 @@ export async function PUT(request: NextRequest) {
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const db = createAdminClient() as any
-    const upserts = Object.entries(body).map(([key, value]) => ({
-      key,
-      value,
-      updated_at: new Date().toISOString(),
-    }))
+    const upserts = Object.entries(body)
+      .filter(([key, value]) => ALLOWED_KEYS.has(key) && value !== MASKED_VALUE)
+      .map(([key, value]) => ({
+        key,
+        value,
+        updated_at: new Date().toISOString(),
+      }))
 
     const { error } = await db
       .from('site_settings')

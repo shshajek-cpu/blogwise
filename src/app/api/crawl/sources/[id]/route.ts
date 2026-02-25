@@ -16,9 +16,22 @@ export async function PATCH(
 
     const body = await request.json()
 
+    // Only allow safe fields to be updated (prevent mass assignment)
+    const allowedFields = ['name', 'url', 'platform', 'is_active', 'crawl_frequency']
+    const safeBody: Record<string, unknown> = Object.fromEntries(
+      Object.entries(body).filter(([k]) => allowedFields.includes(k))
+    )
+
+    if (Object.keys(safeBody).length === 0) {
+      return NextResponse.json(
+        { error: '수정할 유효한 필드가 없습니다.' },
+        { status: 400 }
+      )
+    }
+
     if (!isConfigured) {
       return NextResponse.json({
-        source: { id, ...body, updated_at: new Date().toISOString() },
+        source: { id, ...safeBody, updated_at: new Date().toISOString() },
         mock: true,
       })
     }
@@ -28,7 +41,7 @@ export async function PATCH(
 
     const { data: source, error } = await db
       .from('crawl_sources')
-      .update(body)
+      .update(safeBody)
       .eq('id', id)
       .select()
       .single()

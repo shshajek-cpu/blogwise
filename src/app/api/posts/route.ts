@@ -21,8 +21,8 @@ export async function GET(request: NextRequest) {
     const status = searchParams.get('status')
     const category = searchParams.get('category')
     const search = searchParams.get('search')
-    const page = parseInt(searchParams.get('page') ?? '1', 10)
-    const limit = parseInt(searchParams.get('limit') ?? '20', 10)
+    const page = Math.max(1, parseInt(searchParams.get('page') ?? '1', 10))
+    const limit = Math.min(Math.max(1, parseInt(searchParams.get('limit') ?? '20', 10)), 100)
     const sort = searchParams.get('sort') ?? 'created_at'
 
     if (!isConfigured) {
@@ -52,7 +52,8 @@ export async function GET(request: NextRequest) {
     }
 
     if (search) {
-      const term = `%${search}%`
+      const escaped = search.replace(/[%_\\]/g, '\\$&')
+      const term = `%${escaped}%`
       dataQ = dataQ.or(`title.ilike.${term},excerpt.ilike.${term}`)
       countQ = countQ.or(`title.ilike.${term},excerpt.ilike.${term}`)
     }
@@ -116,7 +117,7 @@ export async function POST(request: NextRequest) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const db = createAdminClient() as any
     const body = await request.json()
-    const { tag_ids, ...postInput } = body
+    const { tag_ids, tags: tagNames, ...postInput } = body
 
     if (!postInput.slug && postInput.title) {
       postInput.slug = slugify(postInput.title)
@@ -142,8 +143,27 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: '포스트 생성 중 오류가 발생했습니다.' }, { status: 500 })
     }
 
-    if (tag_ids && Array.isArray(tag_ids) && tag_ids.length > 0) {
-      const tagRows = tag_ids.map((tag_id: string) => ({ post_id: post.id, tag_id }))
+    // Resolve tag names to IDs (upsert by name)
+    let resolvedTagIds: string[] = tag_ids && Array.isArray(tag_ids) ? [...tag_ids] : []
+    if (tagNames && Array.isArray(tagNames) && tagNames.length > 0) {
+      for (const name of tagNames) {
+        const trimmed = (name as string).trim()
+        if (!trimmed) continue
+        const tagSlug = trimmed.toLowerCase().replace(/[^\w\s-]/g, '').replace(/[\s_-]+/g, '-').replace(/^-+|-+$/g, '')
+        // Try to find existing tag
+        const { data: existing } = await db.from('tags').select('id').eq('name', trimmed).single()
+        if (existing) {
+          resolvedTagIds.push(existing.id)
+        } else {
+          // Create new tag
+          const { data: newTag } = await db.from('tags').insert({ name: trimmed, slug: tagSlug }).select('id').single()
+          if (newTag) resolvedTagIds.push(newTag.id)
+        }
+      }
+    }
+
+    if (resolvedTagIds.length > 0) {
+      const tagRows = resolvedTagIds.map((tag_id: string) => ({ post_id: post.id, tag_id }))
       const { error: tagError } = await db.from('post_tags').insert(tagRows)
       if (tagError) {
         console.error('Error inserting post tags:', tagError)

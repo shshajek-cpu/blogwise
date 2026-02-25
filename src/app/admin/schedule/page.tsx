@@ -42,6 +42,7 @@ export default function SchedulePage() {
     try {
       // Step 1: Fetch trending keywords
       const keywordsResponse = await fetch('/api/crawl/keywords');
+      if (!keywordsResponse.ok) throw new Error('키워드를 가져오지 못했습니다.');
       const keywordsData = await keywordsResponse.json();
       const topKeywords = (keywordsData.keywords || []).slice(0, 7);
 
@@ -69,6 +70,7 @@ export default function SchedulePage() {
             }),
           });
 
+          if (!generateResponse.ok) throw new Error('포스트 생성에 실패했습니다.');
           const generateData = await generateResponse.json();
 
           if (generateData.success && generateData.content) {
@@ -83,11 +85,12 @@ export default function SchedulePage() {
                 excerpt: generateData.content.excerpt || generateData.content.description || '',
                 status: 'scheduled',
                 scheduled_at: scheduledDate.toISOString(),
-                category_id: '1', // Default category
+                category_id: null,
                 read_time_minutes: 5,
               }),
             });
 
+            if (!createResponse.ok) throw new Error('포스트 저장에 실패했습니다.');
             const createData = await createResponse.json();
             if (createData.post) {
               generatedPosts.push(createData.post);
@@ -224,6 +227,14 @@ export default function SchedulePage() {
               <div
                 key={day.toISOString()}
                 className="min-h-[200px] p-3 border-r border-b border-gray-200 last:border-r-0"
+                onDragOver={(e) => e.preventDefault()}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  const postId = e.dataTransfer.getData('postId');
+                  if (postId) {
+                    handleReschedule(postId, day);
+                  }
+                }}
               >
                 {postsForDay.map((post) => (
                   <div
@@ -233,14 +244,6 @@ export default function SchedulePage() {
                     onDragStart={(e) => {
                       e.dataTransfer.setData('postId', post.id);
                       e.dataTransfer.setData('currentDate', post.scheduled_at);
-                    }}
-                    onDragOver={(e) => e.preventDefault()}
-                    onDrop={(e) => {
-                      e.preventDefault();
-                      const postId = e.dataTransfer.getData('postId');
-                      if (postId) {
-                        handleReschedule(postId, day);
-                      }
                     }}
                   >
                     <div className="font-medium text-gray-900 line-clamp-2">

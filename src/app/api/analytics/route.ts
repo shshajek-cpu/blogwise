@@ -9,11 +9,17 @@ const isConfigured = !!(
 function getPeriodStart(period: string): Date {
   const now = new Date()
   switch (period) {
+    case '365d':
+      now.setDate(now.getDate() - 365)
+      break
     case '90d':
       now.setDate(now.getDate() - 90)
       break
     case '30d':
       now.setDate(now.getDate() - 30)
+      break
+    case '1d':
+      now.setDate(now.getDate() - 1)
       break
     case '7d':
     default:
@@ -25,8 +31,26 @@ function getPeriodStart(period: string): Date {
 }
 
 function getPreviousPeriodStart(period: string): Date {
-  const days = parseInt(period.replace('d', ''), 10) || 7
   const now = new Date()
+  let days: number
+  switch (period) {
+    case '1d':
+      days = 1
+      break
+    case '30d':
+      days = 30
+      break
+    case '90d':
+      days = 90
+      break
+    case '365d':
+      days = 365
+      break
+    case '7d':
+    default:
+      days = 7
+      break
+  }
   now.setDate(now.getDate() - days * 2)
   now.setHours(0, 0, 0, 0)
   return now

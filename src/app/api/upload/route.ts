@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/server'
+import { rateLimit } from '@/lib/rateLimit'
 
 const isConfigured = !!(
   process.env.NEXT_PUBLIC_SUPABASE_URL &&
@@ -7,6 +8,9 @@ const isConfigured = !!(
 )
 
 export async function POST(request: NextRequest) {
+  const rateLimitResponse = rateLimit(request, { max: 20, windowMs: 60_000 })
+  if (rateLimitResponse) return rateLimitResponse
+
   try {
     const formData = await request.formData()
     const file = formData.get('file') as File
@@ -16,14 +20,13 @@ export async function POST(request: NextRequest) {
     }
 
     // Validate file type
-    const allowedTypes = [
-      'image/jpeg',
-      'image/png',
-      'image/gif',
-      'image/webp',
-      'image/svg+xml',
-    ]
-    if (!allowedTypes.includes(file.type)) {
+    const mimeToExt: Record<string, string> = {
+      'image/jpeg': 'jpg',
+      'image/png': 'png',
+      'image/gif': 'gif',
+      'image/webp': 'webp',
+    }
+    if (!(file.type in mimeToExt)) {
       return NextResponse.json(
         { error: '허용되지 않는 파일 형식입니다.' },
         { status: 400 }
@@ -38,10 +41,12 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    const safeExt = mimeToExt[file.type] ?? 'jpg'
+
     if (!isConfigured) {
       // Mock mode - return a fake URL
       return NextResponse.json({
-        url: `/placeholder-${Date.now()}.${file.type.split('/')[1]}`,
+        url: `/placeholder-${Date.now()}.${safeExt}`,
         name: file.name,
         size: file.size,
       })
@@ -50,9 +55,8 @@ export async function POST(request: NextRequest) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const supabase = createAdminClient() as any
 
-    // Generate unique filename
-    const ext = file.name.split('.').pop() || 'jpg'
-    const fileName = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`
+    // Generate unique filename using MIME-based extension and UUID
+    const fileName = `${crypto.randomUUID()}.${safeExt}`
     const filePath = `posts/${fileName}`
 
     // Upload to Supabase Storage bucket "images"

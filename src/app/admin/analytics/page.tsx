@@ -7,11 +7,11 @@ import { cn } from "@/lib/utils/cn";
 const dateRanges = ["오늘", "7일", "30일", "3개월", "1년"] as const;
 
 const periodMap: Record<string, string> = {
-  "오늘": "7d",
+  "오늘": "1d",
   "7일": "7d",
   "30일": "30d",
   "3개월": "90d",
-  "1년": "90d",
+  "1년": "365d",
 };
 
 // Revenue estimation helper
@@ -36,20 +36,25 @@ export default function AnalyticsPage() {
   const [dateRange, setDateRange] = useState<string>("7일");
   const [analytics, setAnalytics] = useState<AnalyticsData | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   // Derive period from dateRange instead of using separate state
-  const period = periodMap[dateRange] as '7d' | '30d' | '90d';
+  const period = periodMap[dateRange] as '1d' | '7d' | '30d' | '90d' | '365d';
 
   useEffect(() => {
     let cancelled = false;
     const fetchData = async () => {
       try {
+        setError(null);
         const res = await fetch(`/api/analytics?period=${period}`);
         if (!res.ok) throw new Error('Failed to fetch');
         const data: AnalyticsData = await res.json();
         if (!cancelled) setAnalytics(data);
       } catch {
-        if (!cancelled) setAnalytics(null);
+        if (!cancelled) {
+          setAnalytics(null);
+          setError("데이터를 불러오지 못했습니다.");
+        }
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -98,6 +103,9 @@ export default function AnalyticsPage() {
 
   const todayRevenue = analytics?.todayViews ? estimateRevenue(analytics.todayViews) : 0;
   const totalRevenue = analytics?.totalViews ? estimateRevenue(analytics.totalViews) : 0;
+  const periodDays = parseInt(period.replace('d', ''), 10) || 7;
+  const dailyAvgViews = analytics?.totalViews && periodDays > 0 ? analytics.totalViews / periodDays : 0;
+  const monthlyEstimatedRevenue = estimateRevenue(Math.round(dailyAvgViews * 30));
 
   const summaryStats = [
     {
@@ -135,8 +143,8 @@ export default function AnalyticsPage() {
     },
     {
       label: "월 예상 수익",
-      value: loading ? "..." : `₩${(todayRevenue * 30).toLocaleString()}`,
-      sublabel: "일 평균 기준",
+      value: loading ? "..." : `₩${monthlyEstimatedRevenue.toLocaleString()}`,
+      sublabel: `일 평균 ${Math.round(dailyAvgViews).toLocaleString()}뷰 기준`,
     },
   ];
 
@@ -163,6 +171,13 @@ export default function AnalyticsPage() {
           ))}
         </div>
       </div>
+
+      {/* Error banner */}
+      {error && (
+        <div className="bg-red-50 border border-red-200 rounded-lg px-4 py-3 text-sm text-red-700">
+          {error}
+        </div>
+      )}
 
       {/* Summary stats */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">

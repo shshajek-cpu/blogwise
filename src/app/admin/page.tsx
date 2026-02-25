@@ -111,6 +111,7 @@ export default function AdminDashboard() {
           // Calculate revenue estimates
           const dailyRevenue = estimateRevenue(data.todayViews ?? 0);
           const monthlyRevenue = estimateRevenue((data.todayViews ?? 0) * 30);
+          void dailyRevenue; // used for future per-day display
 
           setStats((prev) => ({
             ...prev,
@@ -118,6 +119,8 @@ export default function AdminDashboard() {
             totalPublished: data.publishedCount?.toLocaleString() ?? "0",
             monthlyRevenue: `₩${monthlyRevenue.toLocaleString()}`,
           }));
+        } else {
+          console.warn('Analytics API failed:', analyticsRes.status);
         }
         if (postsRes.ok) {
           const data = await postsRes.json();
@@ -144,6 +147,8 @@ export default function AdminDashboard() {
               }))
             );
           }
+        } else {
+          console.warn('Posts API failed:', postsRes.status);
         }
         if (crawlRes.ok) {
           const data = await crawlRes.json();
@@ -166,6 +171,8 @@ export default function AdminDashboard() {
             });
             setCrawlLogs(logs);
           }
+        } else {
+          console.warn('Crawl API failed:', crawlRes.status);
         }
       } catch {
         // Keep mock data on error
@@ -297,16 +304,11 @@ export default function AdminDashboard() {
             onClick={() => router.push('/admin/crawl')}
             className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-md bg-success-light text-success hover:opacity-80 transition-opacity border border-green-200"
           >
-            <span>✨</span> AI 글 생성
+            <span>✨</span> 콘텐츠 생성
           </button>
           <button
-            onClick={async () => {
-              try {
-                await fetch('/api/sitemap-refresh', { method: 'POST' });
-                alert('사이트맵 갱신 완료');
-              } catch {
-                alert('사이트맵 갱신 실패');
-              }
+            onClick={() => {
+              alert('준비 중인 기능입니다.');
             }}
             className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-md bg-gray-100 text-gray-700 hover:bg-gray-200 transition-colors border border-gray-200"
           >
@@ -315,11 +317,16 @@ export default function AdminDashboard() {
           <button
             onClick={async () => {
               try {
-                await fetch('/api/posts', {
+                const res = await fetch('/api/posts', {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json' },
                   body: JSON.stringify({ action: 'bulk-publish' })
                 });
+                if (!res.ok) {
+                  const data = await res.json().catch(() => ({}));
+                  alert(data.error ?? '일괄 발행에 실패했습니다.');
+                  return;
+                }
                 alert('일괄 발행 완료');
                 window.location.reload();
               } catch {

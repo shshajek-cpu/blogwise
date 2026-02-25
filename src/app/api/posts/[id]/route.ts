@@ -33,9 +33,13 @@ export async function GET(
 
     if (error) {
       console.error('Error fetching post:', error)
+      const status = error.code === 'PGRST116' ? 404 : 500
+      const message = error.code === 'PGRST116'
+        ? '포스트를 찾을 수 없습니다.'
+        : '서버 오류가 발생했습니다.'
       return NextResponse.json(
-        { error: '포스트를 찾을 수 없습니다.' },
-        { status: 404 }
+        { error: message },
+        { status }
       )
     }
 
@@ -64,28 +68,43 @@ export async function PATCH(
     const db = createAdminClient() as any
     const body = await request.json()
 
+    // Whitelist allowed fields to prevent mass assignment
+    const allowedFields = [
+      'title', 'content', 'excerpt', 'status', 'slug', 'category_id',
+      'featured_image', 'seo_title', 'seo_description', 'seo_keywords',
+      'published_at', 'scheduled_at', 'ai_provider', 'source_url'
+    ]
+    const updateData: Record<string, unknown> = {}
+    for (const field of allowedFields) {
+      if (field in body) updateData[field] = body[field]
+    }
+
     // Handle scheduled_at field
-    if (body.scheduled_at) {
-      body.scheduled_at = new Date(body.scheduled_at).toISOString()
+    if (updateData.scheduled_at) {
+      updateData.scheduled_at = new Date(updateData.scheduled_at as string).toISOString()
     }
 
     // Handle published_at field
-    if (body.status === 'published' && !body.published_at) {
-      body.published_at = new Date().toISOString()
+    if (updateData.status === 'published' && !updateData.published_at) {
+      updateData.published_at = new Date().toISOString()
     }
 
     const { data: post, error } = await db
       .from('posts')
-      .update(body)
+      .update(updateData)
       .eq('id', id)
       .select('*, category:categories(id, name, slug, description, color, post_count, created_at)')
       .single()
 
     if (error) {
       console.error('Error updating post:', error)
+      const status = error.code === 'PGRST116' ? 404 : 500
+      const message = error.code === 'PGRST116'
+        ? '포스트를 찾을 수 없습니다.'
+        : '포스트 업데이트 중 오류가 발생했습니다.'
       return NextResponse.json(
-        { error: '포스트 업데이트 중 오류가 발생했습니다.' },
-        { status: 500 }
+        { error: message },
+        { status }
       )
     }
 
@@ -135,7 +154,7 @@ export async function DELETE(
     if (error) {
       console.error('Error deleting post:', error)
       return NextResponse.json(
-        { error: `포스트 삭제 실패: ${error.message}`, code: error.code, details: error.details },
+        { error: '포스트 삭제 중 오류가 발생했습니다.' },
         { status: 500 }
       )
     }
@@ -144,7 +163,7 @@ export async function DELETE(
   } catch (err) {
     console.error('DELETE /api/posts/[id] error:', err)
     return NextResponse.json(
-      { error: `서버 오류: ${err instanceof Error ? err.message : String(err)}` },
+      { error: '서버 오류가 발생했습니다.' },
       { status: 500 }
     )
   }

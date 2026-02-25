@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { loadSiteSettings, resolveApiKey } from "@/lib/settings";
+import { rateLimit } from "@/lib/rateLimit";
 
 const MOONSHOT_BASE_URL = "https://api.moonshot.ai/v1";
 
@@ -34,14 +35,15 @@ function buildSystemPrompt(category: string, tone: string, wordCount: number, se
 6. 구조: 서론 → 본론 (2~4개 섹션) → 결론
 7. 각 섹션에 소제목 포함
 8. 실용적인 예시나 코드 포함
-9. 한국어로 작성`;
+9. 반드시 한국어로만 작성 (중국어, 일본어 등 다른 언어의 문자를 절대 사용하지 마세요. 한자 표기도 금지합니다.)`;
 }
 
 async function generateWithMoonshot(
   topic: string,
   systemPrompt: string,
   model: string = "moonshot-v1-128k",
-  apiKey?: string
+  apiKey?: string,
+  maxTokens: number = 8192
 ) {
   const key = apiKey ?? process.env.MOONSHOT_API_KEY;
   if (!key) {
@@ -63,7 +65,7 @@ async function generateWithMoonshot(
         { role: "user", content: `다음 주제로 블로그 글을 작성해주세요:\n\n${topic}` },
       ],
       temperature: 0.7,
-      max_tokens: 8192,
+      max_tokens: maxTokens,
     }),
   });
 
@@ -90,7 +92,8 @@ async function generateWithOpenAICompatible(
   topic: string,
   systemPrompt: string,
   model: string,
-  resolvedApiKey?: string
+  resolvedApiKey?: string,
+  maxTokens: number = 8192
 ) {
   const providerConfig: Record<string, { baseUrl: string; keyEnv: string; dbKey: string }> = {
     openai: { baseUrl: "https://api.openai.com/v1", keyEnv: "OPENAI_API_KEY", dbKey: "openai_api_key" },
@@ -122,7 +125,7 @@ async function generateWithOpenAICompatible(
         { role: "user", content: `다음 주제로 블로그 글을 작성해주세요:\n\n${topic}` },
       ],
       temperature: 0.7,
-      max_tokens: 8192,
+      max_tokens: maxTokens,
     }),
   });
 
@@ -146,13 +149,25 @@ async function generateWithOpenAICompatible(
 }
 
 export async function POST(request: NextRequest) {
+  const rateLimitResponse = rateLimit(request, { max: 10, windowMs: 60_000 })
+  if (rateLimitResponse) return rateLimitResponse
+
   try {
     const body: GenerateRequest = await request.json();
     const { provider, model, topic, category, tone, wordCount, seoKeywords, sourceContent } = body;
 
+    if (!provider || typeof provider !== "string") {
+      return NextResponse.json({ error: "provider가 필요합니다." }, { status: 400 });
+    }
     if (!topic && !sourceContent) {
       return NextResponse.json({ error: "주제 또는 소스 콘텐츠가 필요합니다." }, { status: 400 });
     }
+    if (wordCount != null && (typeof wordCount !== "number" || wordCount < 100 || wordCount > 20000)) {
+      return NextResponse.json({ error: "wordCount는 100~20000 사이의 숫자여야 합니다." }, { status: 400 });
+    }
+
+    // Dynamic max_tokens based on wordCount
+    const dynamicMaxTokens = Math.min(Math.max((wordCount ?? 2000) * 3, 4096), 16384);
 
     // Load DB settings once to resolve API keys (env var takes priority over DB)
     const dbSettings = await loadSiteSettings();
@@ -168,14 +183,14 @@ export async function POST(request: NextRequest) {
       case "moonshot": {
         const moonshotModel = model || (typeof dbSettings.moonshot_model === "string" && dbSettings.moonshot_model ? dbSettings.moonshot_model : "moonshot-v1-128k");
         const moonshotKey = await resolveApiKey("MOONSHOT_API_KEY", "moonshot_api_key", dbSettings);
-        result = await generateWithMoonshot(content, systemPrompt, moonshotModel, moonshotKey);
+        result = await generateWithMoonshot(content, systemPrompt, moonshotModel, moonshotKey, dynamicMaxTokens);
         result = { ...result, provider: "moonshot" };
         break;
       }
       case "openai": {
         const openaiModel = model || "gpt-4o";
         const openaiKey = await resolveApiKey("OPENAI_API_KEY", "openai_api_key", dbSettings);
-        result = await generateWithOpenAICompatible("openai", content, systemPrompt, openaiModel, openaiKey);
+        result = await generateWithOpenAICompatible("openai", content, systemPrompt, openaiModel, openaiKey, dynamicMaxTokens);
         break;
       }
       default:

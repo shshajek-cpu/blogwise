@@ -50,18 +50,25 @@ export async function POST(request: NextRequest) {
     }
 
     if (post_id) {
-      // Fallback: fetch current count, then increment
-      const { data: postRow } = await db
-        .from('posts')
-        .select('view_count')
-        .eq('id', post_id)
-        .single()
+      // Try atomic increment via RPC first, fall back to read-modify-write
+      const { error: rpcError } = await db.rpc('increment_view_count', { row_id: post_id })
 
-      if (postRow) {
-        await db
+      if (rpcError) {
+        // RPC not available — fallback to read-modify-write
+        // NOTE: This is NOT atomic and may lose increments under concurrent writes.
+        // For a proper fix, create an SQL function: increment_view_count(row_id uuid)
+        const { data: postRow } = await db
           .from('posts')
-          .update({ view_count: ((postRow as { view_count: number }).view_count ?? 0) + 1 })
+          .select('view_count')
           .eq('id', post_id)
+          .single()
+
+        if (postRow) {
+          await db
+            .from('posts')
+            .update({ view_count: ((postRow as { view_count: number }).view_count ?? 0) + 1 })
+            .eq('id', post_id)
+        }
       }
     }
 

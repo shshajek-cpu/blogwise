@@ -55,16 +55,17 @@ export default function ContentsPage() {
   const [search, setSearch] = useState("");
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [categoryFilter, setCategoryFilter] = useState("전체");
-  const [posts, setPosts] = useState<Post[]>(mockPosts);
+  const [posts, setPosts] = useState<Post[]>([]);
   const [loading, setLoading] = useState(true);
-  const [totalCount, setTotalCount] = useState(mockPosts.length);
+  const [fetchError, setFetchError] = useState("");
+  const [totalCount, setTotalCount] = useState(0);
   const [page, setPage] = useState(1);
   const [tabCounts, setTabCounts] = useState<Record<string, number>>({
-    "전체": mockPosts.length,
-    "발행됨": mockPosts.filter((p) => p.status === "발행됨").length,
-    "초안": mockPosts.filter((p) => p.status === "초안").length,
-    "예약": mockPosts.filter((p) => p.status === "예약").length,
-    "보관": mockPosts.filter((p) => p.status === "보관").length,
+    "전체": 0,
+    "발행됨": 0,
+    "초안": 0,
+    "예약": 0,
+    "보관": 0,
   });
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [editContent, setEditContent] = useState("");
@@ -74,6 +75,7 @@ export default function ContentsPage() {
 
   const fetchPosts = useCallback(async () => {
     setLoading(true);
+    setFetchError("");
     try {
       const params = new URLSearchParams();
       if (activeTab !== "전체") {
@@ -133,15 +135,9 @@ export default function ContentsPage() {
         }
       }
     } catch {
-      // Fall back to mock data with client-side filtering
-      const filtered = mockPosts.filter((p) => {
-        const matchTab = activeTab === "전체" || p.status === activeTab;
-        const matchSearch = p.title.toLowerCase().includes(search.toLowerCase());
-        const matchCategory = categoryFilter === "전체" || p.category === categoryFilter;
-        return matchTab && matchSearch && matchCategory;
-      });
-      setPosts(filtered);
-      setTotalCount(filtered.length);
+      setFetchError("데이터를 불러오지 못했습니다.");
+      setPosts([]);
+      setTotalCount(0);
     } finally {
       setLoading(false);
     }
@@ -156,7 +152,7 @@ export default function ContentsPage() {
     setPage(1);
   }, [activeTab, search, categoryFilter]);
 
-  const categories = ["전체", ...Array.from(new Set(mockPosts.map((p) => p.category)))];
+  const categories = ["전체", ...Array.from(new Set(posts.map((p) => p.category).filter(Boolean)))];
 
   const toggleSelect = (id: string) => {
     setSelectedIds((prev) => {
@@ -216,13 +212,19 @@ export default function ContentsPage() {
   const handleBulkPublish = async () => {
     if (!confirm(`${selectedIds.size}개 게시물을 발행하시겠습니까?`)) return;
     setActionLoading("bulk-publish");
-    for (const id of selectedIds) {
-      await fetch(`/api/posts/${id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status: "published" }),
-      }).catch(() => {});
-    }
+    const results = await Promise.allSettled(
+      Array.from(selectedIds).map(id =>
+        fetch(`/api/posts/${id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ status: "published" }),
+        }).then(res => {
+          if (!res.ok) throw new Error();
+        })
+      )
+    );
+    const failed = results.filter(r => r.status === "rejected").length;
+    if (failed > 0) alert(`${selectedIds.size - failed}개 성공, ${failed}개 실패`);
     setSelectedIds(new Set());
     setActionLoading(null);
     fetchPosts();
@@ -231,9 +233,15 @@ export default function ContentsPage() {
   const handleBulkDelete = async () => {
     if (!confirm(`${selectedIds.size}개 게시물을 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.`)) return;
     setActionLoading("bulk-delete");
-    for (const id of selectedIds) {
-      await fetch(`/api/posts/${id}`, { method: "DELETE" }).catch(() => {});
-    }
+    const results = await Promise.allSettled(
+      Array.from(selectedIds).map(id =>
+        fetch(`/api/posts/${id}`, { method: "DELETE" }).then(res => {
+          if (!res.ok) throw new Error();
+        })
+      )
+    );
+    const failed = results.filter(r => r.status === "rejected").length;
+    if (failed > 0) alert(`${selectedIds.size - failed}개 성공, ${failed}개 실패`);
     setSelectedIds(new Set());
     setActionLoading(null);
     fetchPosts();
@@ -257,6 +265,10 @@ export default function ContentsPage() {
       setExpandedId(null);
       return;
     }
+    // Clear previous content immediately to prevent stale data showing
+    setEditContent("");
+    setEditExcerpt("");
+    setExpandedId(post.id);
     try {
       const res = await fetch(`/api/posts/${post.id}`);
       if (res.ok) {
@@ -268,7 +280,6 @@ export default function ContentsPage() {
       setEditContent("");
       setEditExcerpt("");
     }
-    setExpandedId(post.id);
   };
 
   const handleInlineSave = async (postId: string, publish?: boolean) => {
@@ -405,6 +416,13 @@ export default function ContentsPage() {
           </button>
         )}
       </div>
+
+      {/* Error Banner */}
+      {fetchError && (
+        <div className="px-4 py-3 rounded-lg bg-red-50 border border-red-200 text-red-700 text-sm">
+          {fetchError}
+        </div>
+      )}
 
       {/* Action Loading Overlay */}
       {actionLoading && (
