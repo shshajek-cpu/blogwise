@@ -145,7 +145,7 @@ CREATE POLICY "Admins can manage crawled items" ON public.crawled_items FOR ALL 
 -- ─── 003: AI Tables ──────────────────────────
 CREATE TABLE public.ai_generation_logs (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  post_id UUID REFERENCES public.posts(id),
+  post_id UUID REFERENCES public.posts(id) ON DELETE CASCADE,
   crawled_item_id UUID REFERENCES public.crawled_items(id),
   provider TEXT NOT NULL CHECK (provider IN ('openai', 'claude', 'gemini', 'moonshot')),
   model TEXT NOT NULL,

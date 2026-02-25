@@ -123,6 +123,9 @@ export async function DELETE(
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const db = createAdminClient() as any
 
+    // Delete related ai_generation_logs first (no CASCADE on FK)
+    await db.from('ai_generation_logs').delete().eq('post_id', id)
+
     const { error } = await db.from('posts').delete().eq('id', id)
 
     if (error) {
