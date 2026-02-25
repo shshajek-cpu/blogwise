@@ -24,6 +24,19 @@ function getPeriodStart(period: string): Date {
   return now
 }
 
+function getPreviousPeriodStart(period: string): Date {
+  const days = parseInt(period.replace('d', ''), 10) || 7
+  const now = new Date()
+  now.setDate(now.getDate() - days * 2)
+  now.setHours(0, 0, 0, 0)
+  return now
+}
+
+function calcChange(current: number, previous: number): number {
+  if (previous === 0) return 0
+  return Math.round(((current - previous) / previous) * 100 * 10) / 10
+}
+
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url)
@@ -44,6 +57,10 @@ export async function GET(request: NextRequest) {
         todayViews: 1234,
         totalViews: 58320,
         publishedCount: 156,
+        draftCount: 12,
+        todayViewsChange: 12.5,
+        totalViewsChange: 8.3,
+        publishedCountChange: 5.1,
         weeklyData,
         topPosts: [
           { id: '1', title: 'ChatGPT로 생산성 10배 높이는 실전 프롬프트 모음', slug: 'chatgpt-prompts', view_count: 3420 },
@@ -69,13 +86,19 @@ export async function GET(request: NextRequest) {
     const db = createAdminClient() as any
 
     const periodStart = getPeriodStart(period)
+    const prevPeriodStart = getPreviousPeriodStart(period)
     const today = new Date()
     today.setHours(0, 0, 0, 0)
+    const yesterday = new Date(today)
+    yesterday.setDate(yesterday.getDate() - 1)
 
     const [
       { count: todayViews },
       { count: totalViews },
       { count: publishedCount },
+      { count: draftCount },
+      { count: prevTodayViews },
+      { count: prevTotalViews },
       { data: viewsByDay },
       { data: topPosts },
       { data: deviceData },
@@ -84,6 +107,9 @@ export async function GET(request: NextRequest) {
       db.from('page_views').select('*', { count: 'exact', head: true }).gte('viewed_at', today.toISOString()),
       db.from('page_views').select('*', { count: 'exact', head: true }).gte('viewed_at', periodStart.toISOString()),
       db.from('posts').select('*', { count: 'exact', head: true }).eq('status', 'published'),
+      db.from('posts').select('*', { count: 'exact', head: true }).eq('status', 'draft'),
+      db.from('page_views').select('*', { count: 'exact', head: true }).gte('viewed_at', yesterday.toISOString()).lt('viewed_at', today.toISOString()),
+      db.from('page_views').select('*', { count: 'exact', head: true }).gte('viewed_at', prevPeriodStart.toISOString()).lt('viewed_at', periodStart.toISOString()),
       db.from('page_views').select('viewed_at').gte('viewed_at', periodStart.toISOString()).order('viewed_at', { ascending: true }),
       db.from('posts').select('id, title, slug, view_count').eq('status', 'published').order('view_count', { ascending: false }).limit(5),
       db.from('page_views').select('device_type').gte('viewed_at', periodStart.toISOString()),
@@ -150,10 +176,16 @@ export async function GET(request: NextRequest) {
       percentage: totalReferrerViews > 0 ? Math.round((count / totalReferrerViews) * 100) : 0,
     })).sort((a, b) => b.count - a.count)
 
+    const todayViewsVal = todayViews ?? 0
+    const totalViewsVal = totalViews ?? 0
+
     return NextResponse.json({
-      todayViews: todayViews ?? 0,
-      totalViews: totalViews ?? 0,
+      todayViews: todayViewsVal,
+      totalViews: totalViewsVal,
       publishedCount: publishedCount ?? 0,
+      draftCount: draftCount ?? 0,
+      todayViewsChange: calcChange(todayViewsVal, prevTodayViews ?? 0),
+      totalViewsChange: calcChange(totalViewsVal, prevTotalViews ?? 0),
       weeklyData,
       topPosts: topPosts ?? [],
       devices,

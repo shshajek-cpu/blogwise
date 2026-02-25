@@ -297,9 +297,20 @@ export default function ContentsPage() {
     }
   };
 
+  const [hoverImage, setHoverImage] = useState<{ url: string; x: number; y: number } | null>(null);
+
   const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
 
   return (
+    <>
+    {hoverImage && (
+      <div
+        className="fixed z-[9999] p-1 bg-white rounded-lg shadow-xl border border-gray-200 pointer-events-none"
+        style={{ left: hoverImage.x, top: hoverImage.y }}
+      >
+        <img src={hoverImage.url} alt="미리보기" className="w-64 h-auto rounded" />
+      </div>
+    )}
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
@@ -307,7 +318,7 @@ export default function ContentsPage() {
           <p className="text-sm text-gray-500 mt-1">발행된 글과 초안을 관리하세요.</p>
         </div>
         <button
-          onClick={() => router.push("/admin/generate")}
+          onClick={() => router.push("/admin/crawl")}
           className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-md bg-primary-600 text-white hover:bg-primary-700 transition-colors"
         >
           <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -476,12 +487,16 @@ export default function ContentsPage() {
                       <td className="px-4 py-3 hidden md:table-cell">
                         <div className="flex items-center gap-2">
                           {post.featured_image ? (
-                            <div className="relative group/thumb">
-                              <img src={post.featured_image} alt="" className="w-10 h-10 rounded object-cover border border-gray-200 cursor-pointer" />
-                              <div className="hidden group-hover/thumb:block absolute z-50 left-12 top-0 p-1 bg-white rounded-lg shadow-xl border border-gray-200">
-                                <img src={post.featured_image} alt={post.title} className="w-64 h-auto rounded" />
-                              </div>
-                            </div>
+                            <img
+                              src={post.featured_image}
+                              alt=""
+                              className="w-10 h-10 rounded object-cover border border-gray-200 cursor-pointer"
+                              onMouseEnter={(e) => {
+                                const rect = (e.target as HTMLElement).getBoundingClientRect();
+                                setHoverImage({ url: post.featured_image!, x: rect.right + 8, y: rect.top });
+                              }}
+                              onMouseLeave={() => setHoverImage(null)}
+                            />
                           ) : (
                             <div className="w-10 h-10 rounded bg-gray-100 flex items-center justify-center">
                               <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4 text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -490,9 +505,11 @@ export default function ContentsPage() {
                             </div>
                           )}
                           {post.ai_provider && (
-                            <div className="flex flex-col">
-                              <span className="text-xs text-gray-500">{post.ai_provider}</span>
-                              <span className="text-xs text-gray-400">{post.ai_model}</span>
+                            <div className="flex flex-col gap-0.5">
+                              <span className="text-[10px] text-blue-600 leading-tight">글: {post.ai_provider}</span>
+                              {post.featured_image && (
+                                <span className="text-[10px] text-purple-600 leading-tight">이미지: Gemini</span>
+                              )}
                             </div>
                           )}
                         </div>
@@ -632,5 +649,6 @@ export default function ContentsPage() {
         </div>
       </div>
     </div>
+    </>
   );
 }

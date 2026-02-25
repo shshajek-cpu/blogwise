@@ -8,8 +8,7 @@ import { cn } from "@/lib/utils/cn";
 
 const breadcrumbMap: Record<string, string> = {
   "/admin": "대시보드",
-  "/admin/crawl": "크롤링 관리",
-  "/admin/generate": "AI 글 생성",
+  "/admin/crawl": "콘텐츠 생성",
   "/admin/contents": "콘텐츠 관리",
   "/admin/analytics": "분석",
   "/admin/settings": "설정",
@@ -67,7 +66,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
               <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-error rounded-full" />
             </button>
             <Link
-              href="/admin/generate"
+              href="/admin/crawl"
               className={cn(
                 "inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-md",
                 "bg-primary-600 text-white hover:bg-primary-700 transition-colors"

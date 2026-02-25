@@ -294,7 +294,7 @@ export default function AdminDashboard() {
             <span>🔍</span> 크롤링 실행
           </button>
           <button
-            onClick={() => router.push('/admin/generate')}
+            onClick={() => router.push('/admin/crawl')}
             className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-md bg-success-light text-success hover:opacity-80 transition-opacity border border-green-200"
           >
             <span>✨</span> AI 글 생성

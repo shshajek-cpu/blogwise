@@ -124,24 +124,27 @@ export async function DELETE(
     const db = createAdminClient() as any
 
     // Delete related records first (FK constraints may lack CASCADE)
-    await db.from('ai_generation_logs').delete().eq('post_id', id)
-    await db.from('crawled_items').update({ generated_post_id: null }).eq('generated_post_id', id)
+    const { error: logsErr } = await db.from('ai_generation_logs').delete().eq('post_id', id)
+    if (logsErr) console.error('Error deleting ai_generation_logs:', logsErr)
 
-    const { error } = await db.from('posts').delete().eq('id', id)
+    const { error: crawlErr } = await db.from('crawled_items').update({ generated_post_id: null }).eq('generated_post_id', id)
+    if (crawlErr) console.error('Error clearing crawled_items ref:', crawlErr)
+
+    const { error, count } = await db.from('posts').delete().eq('id', id).select('id', { count: 'exact', head: true })
 
     if (error) {
       console.error('Error deleting post:', error)
       return NextResponse.json(
-        { error: '포스트 삭제 중 오류가 발생했습니다.' },
+        { error: `포스트 삭제 실패: ${error.message}`, code: error.code, details: error.details },
         { status: 500 }
       )
     }
 
-    return NextResponse.json({ success: true })
+    return NextResponse.json({ success: true, deleted: count })
   } catch (err) {
     console.error('DELETE /api/posts/[id] error:', err)
     return NextResponse.json(
-      { error: '서버 오류가 발생했습니다.' },
+      { error: `서버 오류: ${err instanceof Error ? err.message : String(err)}` },
       { status: 500 }
     )
   }

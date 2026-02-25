@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { loadSiteSettings, resolveApiKey } from "@/lib/settings";
 
 const MOONSHOT_BASE_URL = "https://api.moonshot.ai/v1";
 
@@ -39,11 +40,12 @@ function buildSystemPrompt(category: string, tone: string, wordCount: number, se
 async function generateWithMoonshot(
   topic: string,
   systemPrompt: string,
-  model: string = "moonshot-v1-128k"
+  model: string = "moonshot-v1-128k",
+  apiKey?: string
 ) {
-  const apiKey = process.env.MOONSHOT_API_KEY;
-  if (!apiKey) {
-    throw new Error("MOONSHOT_API_KEY가 설정되지 않았습니다.");
+  const key = apiKey ?? process.env.MOONSHOT_API_KEY;
+  if (!key) {
+    throw new Error("MOONSHOT_API_KEY가 설정되지 않았습니다. 환경 변수 또는 관리자 설정에서 API 키를 입력해주세요.");
   }
 
   const startTime = Date.now();
@@ -52,7 +54,7 @@ async function generateWithMoonshot(
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      Authorization: `Bearer ${apiKey}`,
+      Authorization: `Bearer ${key}`,
     },
     body: JSON.stringify({
       model,
@@ -87,11 +89,12 @@ async function generateWithOpenAICompatible(
   provider: string,
   topic: string,
   systemPrompt: string,
-  model: string
+  model: string,
+  resolvedApiKey?: string
 ) {
-  const providerConfig: Record<string, { baseUrl: string; keyEnv: string }> = {
-    openai: { baseUrl: "https://api.openai.com/v1", keyEnv: "OPENAI_API_KEY" },
-    moonshot: { baseUrl: MOONSHOT_BASE_URL, keyEnv: "MOONSHOT_API_KEY" },
+  const providerConfig: Record<string, { baseUrl: string; keyEnv: string; dbKey: string }> = {
+    openai: { baseUrl: "https://api.openai.com/v1", keyEnv: "OPENAI_API_KEY", dbKey: "openai_api_key" },
+    moonshot: { baseUrl: MOONSHOT_BASE_URL, keyEnv: "MOONSHOT_API_KEY", dbKey: "moonshot_api_key" },
   };
 
   const config = providerConfig[provider];
@@ -99,9 +102,9 @@ async function generateWithOpenAICompatible(
     throw new Error(`지원하지 않는 provider: ${provider}`);
   }
 
-  const apiKey = process.env[config.keyEnv];
+  const apiKey = resolvedApiKey ?? process.env[config.keyEnv];
   if (!apiKey) {
-    throw new Error(`${config.keyEnv}가 설정되지 않았습니다.`);
+    throw new Error(`${config.keyEnv}가 설정되지 않았습니다. 환경 변수 또는 관리자 설정에서 API 키를 입력해주세요.`);
   }
 
   const startTime = Date.now();
@@ -151,6 +154,9 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "주제 또는 소스 콘텐츠가 필요합니다." }, { status: 400 });
     }
 
+    // Load DB settings once to resolve API keys (env var takes priority over DB)
+    const dbSettings = await loadSiteSettings();
+
     const systemPrompt = buildSystemPrompt(category, tone, wordCount, seoKeywords);
     const content = sourceContent
       ? `원본 콘텐츠를 참고하여 새로운 블로그 글을 작성해주세요.\n\n원본:\n${sourceContent}\n\n주제: ${topic || "위 내용을 바탕으로 작성"}`
@@ -160,14 +166,16 @@ export async function POST(request: NextRequest) {
 
     switch (provider) {
       case "moonshot": {
-        const moonshotModel = model || "moonshot-v1-128k";
-        result = await generateWithMoonshot(content, systemPrompt, moonshotModel);
+        const moonshotModel = model || (typeof dbSettings.moonshot_model === "string" && dbSettings.moonshot_model ? dbSettings.moonshot_model : "moonshot-v1-128k");
+        const moonshotKey = await resolveApiKey("MOONSHOT_API_KEY", "moonshot_api_key", dbSettings);
+        result = await generateWithMoonshot(content, systemPrompt, moonshotModel, moonshotKey);
         result = { ...result, provider: "moonshot" };
         break;
       }
       case "openai": {
         const openaiModel = model || "gpt-4o";
-        result = await generateWithOpenAICompatible("openai", content, systemPrompt, openaiModel);
+        const openaiKey = await resolveApiKey("OPENAI_API_KEY", "openai_api_key", dbSettings);
+        result = await generateWithOpenAICompatible("openai", content, systemPrompt, openaiModel, openaiKey);
         break;
       }
       default:

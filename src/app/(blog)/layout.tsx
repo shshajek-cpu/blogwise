@@ -1,15 +1,47 @@
+import type { Metadata } from "next";
 import Header from "@/components/layout/Header";
 import Footer from "@/components/layout/Footer";
 import Script from "next/script";
+import { loadSiteSettings } from "@/lib/settings";
 
-const adsenseEnabled = process.env.NEXT_PUBLIC_ADSENSE_ENABLED === "true";
-const adsenseClientId = process.env.NEXT_PUBLIC_ADSENSE_CLIENT_ID;
+export async function generateMetadata(): Promise<Metadata> {
+  const settings = await loadSiteSettings();
+  const siteName =
+    typeof settings.site_name === "string" && settings.site_name
+      ? settings.site_name
+      : process.env.NEXT_PUBLIC_SITE_NAME ?? "Blogwise";
+  const siteDescription =
+    typeof settings.site_description === "string" && settings.site_description
+      ? settings.site_description
+      : process.env.NEXT_PUBLIC_SITE_DESCRIPTION ?? "AI 기반 자동 블로그 시스템";
 
-export default function BlogLayout({
+  return {
+    title: {
+      default: siteName,
+      template: `%s | ${siteName}`,
+    },
+    description: siteDescription,
+  };
+}
+
+export default async function BlogLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
+  // Resolve AdSense settings: env vars take priority, then DB settings
+  const settings = await loadSiteSettings();
+
+  const adsenseEnabled =
+    process.env.NEXT_PUBLIC_ADSENSE_ENABLED === "true" ||
+    settings.adsense_enabled === true;
+
+  const adsenseClientId =
+    process.env.NEXT_PUBLIC_ADSENSE_CLIENT_ID ??
+    (typeof settings.adsense_publisher_id === "string" && settings.adsense_publisher_id
+      ? settings.adsense_publisher_id
+      : undefined);
+
   return (
     <>
       {adsenseEnabled && adsenseClientId && (

@@ -8,8 +8,7 @@ import { createClient } from "@/lib/supabase/client";
 
 const navItems = [
   { href: "/admin", label: "대시보드", emoji: "📊" },
-  { href: "/admin/crawl", label: "크롤링 관리", emoji: "🔍" },
-  { href: "/admin/generate", label: "AI 글 생성", emoji: "🤖" },
+  { href: "/admin/crawl", label: "콘텐츠 생성", emoji: "🤖" },
   { href: "/admin/contents", label: "콘텐츠 관리", emoji: "📝" },
   { href: "/admin/schedule", label: "스케줄", emoji: "📅" },
   { href: "/admin/analytics", label: "분석", emoji: "📈" },

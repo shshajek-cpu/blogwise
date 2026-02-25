@@ -19,35 +19,13 @@ function estimateRevenue(pageviews: number, rpmKRW: number = 800): number {
   return Math.floor((pageviews / 1000) * rpmKRW);
 }
 
-const mockTrafficData = [
-  { day: "1/14", views: 980 },
-  { day: "1/15", views: 1240 },
-  { day: "1/16", views: 1560 },
-  { day: "1/17", views: 1320 },
-  { day: "1/18", views: 1890 },
-  { day: "1/19", views: 2100 },
-  { day: "1/20", views: 1750 },
-];
-
-const mockDevices = [
-  { name: "모바일", pct: 58, color: "bg-primary-500" },
-  { name: "데스크탑", pct: 34, color: "bg-success" },
-  { name: "태블릿", pct: 8, color: "bg-warning" },
-];
-
-const mockReferrers = [
-  { source: "구글 검색", visits: 2840, pct: 52 },
-  { source: "네이버 검색", visits: 1240, pct: 23 },
-  { source: "직접 접속", visits: 680, pct: 12 },
-  { source: "소셜 미디어", visits: 540, pct: 10 },
-  { source: "기타", visits: 163, pct: 3 },
-];
-
 interface AnalyticsData {
   todayViews: number;
   totalViews: number;
   publishedCount: number;
   draftCount: number;
+  todayViewsChange: number;
+  totalViewsChange: number;
   weeklyData: { day?: string; date?: string; views: number }[];
   topPosts: { id: string; title: string; view_count: number; slug: string }[];
   devices?: { name: string; count: number; percentage: number }[];
@@ -73,7 +51,6 @@ export default function AnalyticsPage() {
         setAnalytics(data);
       })
       .catch(() => {
-        // Fall back to null (mock data will be used in render)
         setAnalytics(null);
       })
       .finally(() => {
@@ -86,17 +63,14 @@ export default function AnalyticsPage() {
     day: d.day ?? d.date ?? "",
     views: d.views,
   }));
-  const chartData = normalizedWeeklyData?.length ? normalizedWeeklyData : mockTrafficData;
+  const chartData = normalizedWeeklyData?.length ? normalizedWeeklyData : [];
   const topPostsData = analytics?.topPosts ?? [];
 
-  // Device data with fallback to mock
+  // Device data — no mock fallback
   const deviceColorMap: Record<string, string> = {
     mobile: "bg-primary-500",
     desktop: "bg-success",
     tablet: "bg-warning",
-    모바일: "bg-primary-500",
-    데스크탑: "bg-success",
-    태블릿: "bg-warning",
   };
   const devices = analytics?.devices?.length
     ? analytics.devices.map((d) => ({
@@ -104,9 +78,9 @@ export default function AnalyticsPage() {
         pct: d.percentage,
         color: deviceColorMap[d.name] ?? "bg-gray-400",
       }))
-    : mockDevices;
+    : [];
 
-  // Referrer data with fallback to mock
+  // Referrer data — no mock fallback
   const referrerNameMap: Record<string, string> = {
     google: "구글 검색",
     naver: "네이버 검색",
@@ -120,7 +94,7 @@ export default function AnalyticsPage() {
         visits: r.count,
         pct: r.percentage,
       }))
-    : mockReferrers;
+    : [];
 
   const todayRevenue = analytics?.todayViews ? estimateRevenue(analytics.todayViews) : 0;
   const totalRevenue = analytics?.totalViews ? estimateRevenue(analytics.totalViews) : 0;
@@ -129,22 +103,22 @@ export default function AnalyticsPage() {
     {
       label: "오늘 페이지뷰",
       value: loading ? "..." : (analytics?.todayViews?.toLocaleString() ?? "0"),
-      change: 12.5,
+      change: analytics?.todayViewsChange ?? null,
     },
     {
       label: "총 페이지뷰",
       value: loading ? "..." : (analytics?.totalViews?.toLocaleString() ?? "0"),
-      change: 8.3,
+      change: analytics?.totalViewsChange ?? null,
     },
     {
       label: "발행된 글",
       value: loading ? "..." : (analytics?.publishedCount?.toLocaleString() ?? "0"),
-      change: 5.1,
+      change: null,
     },
     {
       label: "임시저장",
       value: loading ? "..." : (analytics?.draftCount?.toLocaleString() ?? "0"),
-      change: 0,
+      change: null,
     },
   ];
 
@@ -196,7 +170,7 @@ export default function AnalyticsPage() {
           <div key={i} className="bg-white rounded-lg border border-gray-200 shadow-sm px-5 py-4">
             <p className="text-xs text-gray-500">{stat.label}</p>
             <p className="text-2xl font-bold text-gray-900 mt-1">{stat.value}</p>
-            {stat.change !== 0 && (
+            {stat.change !== null && stat.change !== 0 && (
               <div className="flex items-center gap-1 mt-1">
                 <span className={cn(
                   "text-xs font-medium",
@@ -271,7 +245,7 @@ export default function AnalyticsPage() {
 
       {/* Top posts + Device breakdown */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        {/* Top posts (mock fallback for UI completeness) */}
+        {/* Top posts empty state */}
         {topPostsData.length === 0 && (
           <div className="lg:col-span-2 bg-white rounded-lg border border-gray-200 shadow-sm">
             <div className="px-6 py-4 border-b border-gray-200">
@@ -281,7 +255,7 @@ export default function AnalyticsPage() {
               {loading ? (
                 <div className="px-6 py-8 text-center text-sm text-gray-400">로딩 중...</div>
               ) : (
-                <div className="px-6 py-8 text-center text-sm text-gray-400">데이터가 없습니다.</div>
+                <div className="px-6 py-8 text-center text-sm text-gray-400">데이터 없음</div>
               )}
             </div>
           </div>
@@ -292,38 +266,46 @@ export default function AnalyticsPage() {
           {/* Device */}
           <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-5">
             <h3 className="text-sm font-semibold text-gray-700 mb-4">기기별 접속</h3>
-            <div className="space-y-3">
-              {devices.map((d) => (
-                <div key={d.name}>
-                  <div className="flex justify-between text-xs text-gray-600 mb-1">
-                    <span>{d.name}</span>
-                    <span className="font-medium">{d.pct}%</span>
+            {devices.length > 0 ? (
+              <div className="space-y-3">
+                {devices.map((d) => (
+                  <div key={d.name}>
+                    <div className="flex justify-between text-xs text-gray-600 mb-1">
+                      <span>{d.name}</span>
+                      <span className="font-medium">{d.pct}%</span>
+                    </div>
+                    <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
+                      <div className={cn("h-full rounded-full", d.color)} style={{ width: `${d.pct}%` }} />
+                    </div>
                   </div>
-                  <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
-                    <div className={cn("h-full rounded-full", d.color)} style={{ width: `${d.pct}%` }} />
-                  </div>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-sm text-gray-400 text-center py-4">데이터 없음</p>
+            )}
           </div>
 
           {/* Referrers */}
           <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-5">
             <h3 className="text-sm font-semibold text-gray-700 mb-4">유입 경로</h3>
-            <div className="space-y-2">
-              {referrers.map((r) => (
-                <div key={r.source} className="flex items-center justify-between text-xs">
-                  <div className="flex items-center gap-2 min-w-0">
-                    <div className="w-1.5 h-1.5 rounded-full bg-primary-400 shrink-0" />
-                    <span className="text-gray-700 truncate">{r.source}</span>
+            {referrers.length > 0 ? (
+              <div className="space-y-2">
+                {referrers.map((r) => (
+                  <div key={r.source} className="flex items-center justify-between text-xs">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <div className="w-1.5 h-1.5 rounded-full bg-primary-400 shrink-0" />
+                      <span className="text-gray-700 truncate">{r.source}</span>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0 ml-2">
+                      <span className="text-gray-500">{r.visits.toLocaleString()}</span>
+                      <span className="text-gray-400 w-8 text-right">{r.pct}%</span>
+                    </div>
                   </div>
-                  <div className="flex items-center gap-2 shrink-0 ml-2">
-                    <span className="text-gray-500">{r.visits.toLocaleString()}</span>
-                    <span className="text-gray-400 w-8 text-right">{r.pct}%</span>
-                  </div>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-sm text-gray-400 text-center py-4">데이터 없음</p>
+            )}
           </div>
         </div>
       </div>

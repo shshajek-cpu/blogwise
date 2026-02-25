@@ -5,6 +5,7 @@ import { getAllTrends } from '@/lib/crawl/trends'
 import { analyzeKeyword, rankTopicsByRevenue, type KeywordAnalysis } from '@/lib/crawl/analyzer'
 import { crawlForKeyword } from '@/lib/crawl/crawler'
 import { generateFeaturedImage, uploadImageToSupabase } from '@/lib/ai/gemini-image'
+import { loadSiteSettings, resolveApiKey, type SiteSettings } from '@/lib/settings'
 
 // Allow up to 120 seconds for content + image generation
 export const maxDuration = 120
@@ -240,12 +241,20 @@ interface GenerateOptions {
 async function generateContent(
   keyword: string,
   referenceContent?: string,
-  options: GenerateOptions = {}
+  options: GenerateOptions = {},
+  dbSettings?: SiteSettings
 ): Promise<GenerateResult> {
-  const apiKey = process.env.MOONSHOT_API_KEY
+  const apiKey = await resolveApiKey('MOONSHOT_API_KEY', 'moonshot_api_key', dbSettings)
   if (!apiKey) {
-    throw new Error('MOONSHOT_API_KEY가 설정되지 않았습니다.')
+    throw new Error('MOONSHOT_API_KEY가 설정되지 않았습니다. 환경 변수 또는 관리자 설정에서 API 키를 입력해주세요.')
   }
+
+  // Resolve model: env var MOONSHOT_MODEL > DB setting moonshot_model > default
+  const model =
+    process.env.MOONSHOT_MODEL ??
+    (dbSettings && typeof dbSettings.moonshot_model === 'string' && dbSettings.moonshot_model
+      ? dbSettings.moonshot_model
+      : 'moonshot-v1-128k')
 
   const { wordCount = 2500, tone, persona, categoryStyle } = options
 
@@ -271,7 +280,7 @@ async function generateContent(
       Authorization: `Bearer ${apiKey}`,
     },
     body: JSON.stringify({
-      model: 'moonshot-v1-128k',
+      model,
       messages: [
         { role: 'system', content: systemPrompt },
         { role: 'user', content: userMessage },
@@ -289,7 +298,7 @@ async function generateContent(
   const data = await response.json()
   return {
     content: data.choices[0]?.message?.content ?? '',
-    model: data.model ?? 'kimi-2.5',
+    model: data.model ?? model,
     inputTokens: data.usage?.prompt_tokens ?? 0,
     outputTokens: data.usage?.completion_tokens ?? 0,
     generationTimeMs: Date.now() - startTime,
@@ -365,8 +374,12 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Return mock if neither Supabase nor AI key is configured
-    if (!isConfigured && !process.env.MOONSHOT_API_KEY) {
+    // Load DB settings once; used as fallback for API keys and model
+    const dbSettings = await loadSiteSettings()
+
+    // Return mock if neither Supabase nor AI key is configured (env or DB)
+    const hasMoonshotKey = !!(process.env.MOONSHOT_API_KEY || dbSettings.moonshot_api_key)
+    if (!isConfigured && !hasMoonshotKey) {
       return NextResponse.json({
         generated: MOCK_POSTS.length,
         posts: MOCK_POSTS,
@@ -402,7 +415,7 @@ export async function POST(request: NextRequest) {
             tone,
             persona,
             categoryStyle,
-          })
+          }, dbSettings)
         const title = extractTitle(content, analysis.suggestedTitle)
         const slug = slugify(title)
 
@@ -588,7 +601,7 @@ export async function POST(request: NextRequest) {
               tone,
               persona,
               categoryStyle,
-            })
+            }, dbSettings)
           const title = extractTitle(content, analysis.suggestedTitle)
           const slug = slugify(title)
 
