@@ -70,6 +70,7 @@ export default function ContentsPage() {
   const [editContent, setEditContent] = useState("");
   const [editExcerpt, setEditExcerpt] = useState("");
   const [editSaving, setEditSaving] = useState(false);
+  const [actionLoading, setActionLoading] = useState<string | null>(null); // 'delete-{id}' | 'publish-{id}' | 'bulk-publish' | 'bulk-delete' | 'delete-all'
 
   const fetchPosts = useCallback(async () => {
     setLoading(true);
@@ -175,19 +176,24 @@ export default function ContentsPage() {
 
   const handleDelete = async (id: string) => {
     if (!confirm("이 게시물을 삭제하시겠습니까?")) return;
+    setActionLoading(`delete-${id}`);
     try {
       const res = await fetch(`/api/posts/${id}`, { method: "DELETE" });
       if (res.ok) {
         fetchPosts();
       } else {
-        alert("삭제에 실패했습니다.");
+        const data = await res.json().catch(() => ({}));
+        alert(data.error ?? "삭제에 실패했습니다.");
       }
     } catch {
       alert("삭제 중 오류가 발생했습니다.");
+    } finally {
+      setActionLoading(null);
     }
   };
 
   const handlePublish = async (id: string) => {
+    setActionLoading(`publish-${id}`);
     try {
       const res = await fetch(`/api/posts/${id}`, {
         method: "PATCH",
@@ -202,11 +208,14 @@ export default function ContentsPage() {
       }
     } catch {
       alert("발행 중 오류가 발생했습니다.");
+    } finally {
+      setActionLoading(null);
     }
   };
 
   const handleBulkPublish = async () => {
     if (!confirm(`${selectedIds.size}개 게시물을 발행하시겠습니까?`)) return;
+    setActionLoading("bulk-publish");
     for (const id of selectedIds) {
       await fetch(`/api/posts/${id}`, {
         method: "PATCH",
@@ -215,26 +224,31 @@ export default function ContentsPage() {
       }).catch(() => {});
     }
     setSelectedIds(new Set());
+    setActionLoading(null);
     fetchPosts();
   };
 
   const handleBulkDelete = async () => {
     if (!confirm(`${selectedIds.size}개 게시물을 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.`)) return;
+    setActionLoading("bulk-delete");
     for (const id of selectedIds) {
       await fetch(`/api/posts/${id}`, { method: "DELETE" }).catch(() => {});
     }
     setSelectedIds(new Set());
+    setActionLoading(null);
     fetchPosts();
   };
 
   const handleDeleteAll = async () => {
     if (!confirm("현재 탭의 모든 게시물을 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.")) return;
     if (!confirm("정말 삭제하시겠습니까? 한 번 더 확인합니다.")) return;
+    setActionLoading("delete-all");
     const idsToDelete = posts.map((p) => p.id);
     for (const id of idsToDelete) {
       await fetch(`/api/posts/${id}`, { method: "DELETE" }).catch(() => {});
     }
     setSelectedIds(new Set());
+    setActionLoading(null);
     fetchPosts();
   };
 
@@ -356,27 +370,47 @@ export default function ContentsPage() {
             <span className="text-xs text-gray-500">{selectedIds.size}개 선택됨</span>
             <button
               onClick={handleBulkPublish}
-              className="px-3 py-2 text-sm font-medium rounded-md bg-green-600 text-white hover:bg-green-700 transition-colors"
+              disabled={!!actionLoading}
+              className="px-3 py-2 text-sm font-medium rounded-md bg-green-600 text-white hover:bg-green-700 transition-colors disabled:opacity-50"
             >
-              일괄 발행
+              {actionLoading === "bulk-publish" ? "발행 중..." : "일괄 발행"}
             </button>
             <button
               onClick={handleBulkDelete}
-              className="px-3 py-2 text-sm font-medium rounded-md bg-red-600 text-white hover:bg-red-700 transition-colors"
+              disabled={!!actionLoading}
+              className="px-3 py-2 text-sm font-medium rounded-md bg-red-600 text-white hover:bg-red-700 transition-colors disabled:opacity-50"
             >
-              선택 삭제
+              {actionLoading === "bulk-delete" ? "삭제 중..." : "선택 삭제"}
             </button>
           </div>
         )}
         {posts.length > 0 && (
           <button
             onClick={handleDeleteAll}
-            className="px-3 py-2 text-sm font-medium rounded-md border border-red-300 text-red-600 hover:bg-red-50 transition-colors"
+            disabled={!!actionLoading}
+            className="px-3 py-2 text-sm font-medium rounded-md border border-red-300 text-red-600 hover:bg-red-50 transition-colors disabled:opacity-50"
           >
-            전체 삭제
+            {actionLoading === "delete-all" ? "삭제 중..." : "전체 삭제"}
           </button>
         )}
       </div>
+
+      {/* Action Loading Overlay */}
+      {actionLoading && (
+        <div className="flex items-center gap-3 px-4 py-3 rounded-lg bg-blue-50 border border-blue-200 text-blue-700 text-sm">
+          <svg className="w-4 h-4 animate-spin" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+          </svg>
+          <span>
+            {actionLoading === "bulk-publish" && "선택된 게시물을 발행하는 중..."}
+            {actionLoading === "bulk-delete" && "선택된 게시물을 삭제하는 중..."}
+            {actionLoading === "delete-all" && "전체 게시물을 삭제하는 중..."}
+            {actionLoading.startsWith("delete-") && !["bulk-delete", "delete-all"].includes(actionLoading) && "게시물을 삭제하는 중..."}
+            {actionLoading.startsWith("publish-") && actionLoading !== "bulk-publish" && "게시물을 발행하는 중..."}
+          </span>
+        </div>
+      )}
 
       {/* Table */}
       <div className="bg-white rounded-lg border border-gray-200 shadow-sm overflow-hidden">
@@ -475,9 +509,10 @@ export default function ContentsPage() {
                           {post.status === "초안" && (
                             <button
                               onClick={() => handlePublish(post.id)}
-                              className="text-xs text-green-600 hover:text-green-800 font-medium"
+                              disabled={!!actionLoading}
+                              className="text-xs text-green-600 hover:text-green-800 font-medium disabled:opacity-50"
                             >
-                              발행
+                              {actionLoading === `publish-${post.id}` ? "발행 중..." : "발행"}
                             </button>
                           )}
                           <button
@@ -488,9 +523,10 @@ export default function ContentsPage() {
                           </button>
                           <button
                             onClick={() => handleDelete(post.id)}
-                            className="text-xs text-error hover:text-red-700 font-medium"
+                            disabled={!!actionLoading}
+                            className="text-xs text-error hover:text-red-700 font-medium disabled:opacity-50"
                           >
-                            삭제
+                            {actionLoading === `delete-${post.id}` ? "삭제 중..." : "삭제"}
                           </button>
                         </div>
                       </td>
