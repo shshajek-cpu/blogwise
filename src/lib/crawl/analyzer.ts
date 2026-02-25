@@ -12,7 +12,10 @@ export interface KeywordAnalysis {
   suggestedTitle: string
   suggestedCategory: string
   longTailVariants: string[]
+  searchIntent?: 'informational' | 'commercial' | 'transactional' | 'navigational'
 }
+
+export type SearchIntent = 'informational' | 'commercial' | 'transactional' | 'navigational'
 
 // ---- CPC Niche Map ----
 // Maps Korean niche keywords to [minCPC, maxCPC] in USD
@@ -23,6 +26,249 @@ interface NicheConfig {
   category: string
   searchVolume: 'low' | 'medium' | 'high' | 'very_high'
 }
+
+// ---- Subcategory CPC Map ----
+// More precise CPC ranges keyed by subcategory patterns, checked before broad niche matching
+
+interface SubcategoryConfig {
+  patterns: string[]
+  cpcRange: [number, number]
+  category: string
+  searchVolume: 'low' | 'medium' | 'high' | 'very_high'
+}
+
+const SUBCATEGORY_CONFIGS: SubcategoryConfig[] = [
+  // 금융 subcategories
+  {
+    patterns: ['대출', '담보대출', '신용대출', '주택담보대출', '햇살론', '사잇돌', '카카오뱅크대출', '대출금리', '대출조건', '대출한도', '대출비교'],
+    cpcRange: [2.0, 6.0],
+    category: '금융',
+    searchVolume: 'high',
+  },
+  {
+    patterns: ['보험', '보험료', '보험비교', '보험추천', '종신보험', '보험설계'],
+    cpcRange: [1.5, 5.0],
+    category: '금융',
+    searchVolume: 'high',
+  },
+  {
+    patterns: ['투자', '주식', '펀드', '코인', '가상화폐', '재테크', 'ETF', '채권', '배당'],
+    cpcRange: [1.0, 3.0],
+    category: '금융',
+    searchVolume: 'high',
+  },
+  {
+    patterns: ['세금', '소득세', '부가세', '양도세', '취득세', '종부세', '연말정산', '세무', '탈세', '세금신고'],
+    cpcRange: [1.5, 4.0],
+    category: '금융',
+    searchVolume: 'medium',
+  },
+  {
+    patterns: ['저축', '적금', '예금', '금리', '이자', '연금', '퇴직금', '개인연금', 'IRP'],
+    cpcRange: [0.5, 2.0],
+    category: '금융',
+    searchVolume: 'high',
+  },
+  {
+    patterns: ['카드', '신용카드', '체크카드', '카드혜택', '카드추천', '카드발급'],
+    cpcRange: [1.0, 3.5],
+    category: '금융',
+    searchVolume: 'high',
+  },
+  // 부동산 subcategories
+  {
+    patterns: ['아파트 매매', '부동산 매매', '주택 매매', '집 매매', '매물', '매도', '매수'],
+    cpcRange: [1.5, 4.0],
+    category: '부동산',
+    searchVolume: 'high',
+  },
+  {
+    patterns: ['전세', '전세금', '전세대출', '전세사기', '전세계약'],
+    cpcRange: [1.0, 3.5],
+    category: '부동산',
+    searchVolume: 'high',
+  },
+  {
+    patterns: ['청약', '아파트 청약', '청약통장', '청약조건', '청약 당첨', '분양', '사전청약'],
+    cpcRange: [1.0, 3.0],
+    category: '부동산',
+    searchVolume: 'very_high',
+  },
+  {
+    patterns: ['재개발', '재건축', '뉴타운', '도시재생'],
+    cpcRange: [1.5, 4.0],
+    category: '부동산',
+    searchVolume: 'medium',
+  },
+  {
+    patterns: ['월세', '임대', '임차', '전월세', '원룸', '오피스텔'],
+    cpcRange: [0.8, 2.5],
+    category: '부동산',
+    searchVolume: 'high',
+  },
+  // 건강 subcategories
+  {
+    patterns: ['수술', '시술', '의료', '병원비', '진료', '입원', '외래', '수술비'],
+    cpcRange: [1.0, 3.0],
+    category: '건강',
+    searchVolume: 'high',
+  },
+  {
+    patterns: ['의료보험', '실비보험', '건강보험'],
+    cpcRange: [1.5, 4.0],
+    category: '건강',
+    searchVolume: 'high',
+  },
+  {
+    patterns: ['다이어트', '체중감량', '살빼기', '지방흡입', '식단', '운동법'],
+    cpcRange: [0.5, 1.5],
+    category: '건강',
+    searchVolume: 'very_high',
+  },
+  {
+    patterns: ['건강', '영양', '비타민', '영양제', '보충제', '건강기능식품'],
+    cpcRange: [0.3, 1.0],
+    category: '건강',
+    searchVolume: 'very_high',
+  },
+  {
+    patterns: ['암', '당뇨', '고혈압', '심장', '뇌졸중', '치매', '관절', '허리디스크', '질병', '치료'],
+    cpcRange: [0.8, 2.5],
+    category: '건강',
+    searchVolume: 'high',
+  },
+  // 법률 subcategories
+  {
+    patterns: ['이혼', '상속', '유언', '가사'],
+    cpcRange: [3.0, 8.0],
+    category: '법률',
+    searchVolume: 'medium',
+  },
+  {
+    patterns: ['형사', '고소', '고발', '피의자', '변호사', '형사소송', '무죄', '벌금'],
+    cpcRange: [2.0, 6.0],
+    category: '법률',
+    searchVolume: 'medium',
+  },
+  {
+    patterns: ['부동산법', '임대차', '계약서', '공인중개사', '부동산분쟁'],
+    cpcRange: [2.0, 5.0],
+    category: '법률',
+    searchVolume: 'low',
+  },
+  {
+    patterns: ['노동법', '해고', '부당해고', '임금', '근로계약', '퇴직금소송', '산재'],
+    cpcRange: [1.5, 4.0],
+    category: '법률',
+    searchVolume: 'medium',
+  },
+  {
+    patterns: ['법률', '법무', '소송', '민사', '법원', '법적'],
+    cpcRange: [2.0, 6.0],
+    category: '법률',
+    searchVolume: 'medium',
+  },
+  // 정부지원 subcategories
+  {
+    patterns: ['정부대출', '소상공인대출', '창업지원대출', '정책대출', '지원대출'],
+    cpcRange: [1.0, 3.5],
+    category: '정부지원',
+    searchVolume: 'high',
+  },
+  {
+    patterns: ['실업급여', '실업급여신청', '고용보험', '취업지원', '국민취업지원'],
+    cpcRange: [0.8, 2.5],
+    category: '정부지원',
+    searchVolume: 'very_high',
+  },
+  {
+    patterns: ['복지', '급여', '기초생활수급', '차상위', '한부모', '장애인급여'],
+    cpcRange: [0.8, 2.5],
+    category: '정부지원',
+    searchVolume: 'very_high',
+  },
+  {
+    patterns: ['보조금', '지원금', '지원사업', '정부지원', '창업보조금'],
+    cpcRange: [0.7, 2.0],
+    category: '정부지원',
+    searchVolume: 'very_high',
+  },
+  {
+    patterns: ['육아지원', '육아휴직', '출산급여', '아이돌봄', '보육료', '육아'],
+    cpcRange: [0.8, 2.5],
+    category: '정부지원',
+    searchVolume: 'high',
+  },
+  // 보험 subcategories
+  {
+    patterns: ['자동차보험', '자차보험', '차보험', '다이렉트자동차보험'],
+    cpcRange: [2.0, 5.0],
+    category: '보험',
+    searchVolume: 'very_high',
+  },
+  {
+    patterns: ['생명보험', '종신보험', '정기보험', '사망보험'],
+    cpcRange: [1.5, 4.0],
+    category: '보험',
+    searchVolume: 'medium',
+  },
+  {
+    patterns: ['실비보험', '실손보험', '실손의료보험'],
+    cpcRange: [1.0, 3.0],
+    category: '보험',
+    searchVolume: 'high',
+  },
+  {
+    patterns: ['태아보험', '어린이보험', '태아보험추천'],
+    cpcRange: [1.0, 3.0],
+    category: '보험',
+    searchVolume: 'medium',
+  },
+  {
+    patterns: ['여행보험', '해외여행보험', '여행자보험'],
+    cpcRange: [0.8, 2.5],
+    category: '보험',
+    searchVolume: 'medium',
+  },
+  // 교육 subcategories
+  {
+    patterns: ['공무원', '공무원시험', '공무원준비', '행정직', '경찰', '소방'],
+    cpcRange: [0.8, 2.5],
+    category: '교육',
+    searchVolume: 'high',
+  },
+  {
+    patterns: ['자격증', '국가자격증', '자격증시험', '자격증준비'],
+    cpcRange: [0.5, 2.0],
+    category: '교육',
+    searchVolume: 'high',
+  },
+  {
+    patterns: ['토익', '토플', '영어', '어학', 'IELTS', '영어시험'],
+    cpcRange: [0.5, 1.5],
+    category: '교육',
+    searchVolume: 'high',
+  },
+  // IT subcategories
+  {
+    patterns: ['AI', '인공지능', '머신러닝', '딥러닝', 'ChatGPT', '챗GPT', 'LLM'],
+    cpcRange: [0.5, 1.5],
+    category: 'IT',
+    searchVolume: 'high',
+  },
+  {
+    patterns: ['클라우드', 'AWS', 'Azure', 'GCP', '서버', '호스팅'],
+    cpcRange: [0.4, 1.2],
+    category: 'IT',
+    searchVolume: 'medium',
+  },
+  {
+    patterns: ['개발', '프로그래밍', '코딩', '파이썬', 'Python', '자바', 'JavaScript'],
+    cpcRange: [0.3, 1.0],
+    category: 'IT',
+    searchVolume: 'medium',
+  },
+]
 
 const NICHE_CONFIGS: NicheConfig[] = [
   {
@@ -168,6 +414,14 @@ const TITLE_TEMPLATES: Record<string, string[]> = {
     '10분 완성 {keyword} – 바쁜 날 딱 좋은 메뉴',
     '{keyword} 맛있게 만드는 숨겨진 한 가지 비법',
   ],
+  보험: [
+    '{keyword}, 나에게 맞는 상품 고르는 법',
+    '{keyword} 비교 분석 – 전문가가 직접 정리',
+    '{keyword} 가입 전 꼭 알아야 할 5가지',
+    '{keyword} 보험료 줄이는 실전 꿀팁',
+    '{keyword}, 보험 전문가가 추천하는 선택 기준',
+    '처음 가입하는 {keyword}, 이것부터 확인하세요',
+  ],
   엔터테인먼트: [
     '{keyword}, 팬이라면 꼭 알아야 할 이야기',
     '화제의 {keyword} – 직접 확인해봤습니다',
@@ -197,10 +451,53 @@ const LONG_TAIL_PREFIXES: string[] = [
   '쉽게 이해하는', '꼭 알아야 할',
 ]
 
+// ---- Search Intent Classification ----
+
+// Signal word lists for intent classification
+const TRANSACTIONAL_SIGNALS = ['신청', '가입', '구매', '예약', '주문', '결제', '등록', '접수', '신청하기', '가입하기', '구매하기', '다운로드', '설치', '청약신청']
+const COMMERCIAL_SIGNALS    = ['비교', '추천', '순위', '가격', '후기', '가성비', '리뷰', '평가', '랭킹', '베스트', '최저가', '할인', '혜택', '장단점', 'vs', '대비']
+const NAVIGATIONAL_SIGNALS  = ['사이트', '홈페이지', '공식', '로그인', '접속', '바로가기', '링크', '주소', '공식사이트']
+const INFORMATIONAL_SIGNALS = ['방법', '뜻', '종류', '원인', '증상', '의미', '이란', '이란?', '무엇', '어떻게', '왜', '하는법', '이유', '차이', '개념', '정의', '설명', '알아보기', '가이드', '총정리', '이해']
+
+/**
+ * Classify the search intent of a Korean keyword.
+ *
+ * Priority order: navigational > transactional > commercial > informational > informational (default)
+ */
+export function classifySearchIntent(keyword: string): SearchIntent {
+  const lower = keyword.toLowerCase()
+
+  // Navigational: user looking for a specific site or login page
+  if (NAVIGATIONAL_SIGNALS.some(s => lower.includes(s))) return 'navigational'
+
+  // Transactional: user ready to take an action
+  if (TRANSACTIONAL_SIGNALS.some(s => lower.includes(s))) return 'transactional'
+
+  // Commercial: user comparing or researching before a purchase/decision
+  if (COMMERCIAL_SIGNALS.some(s => lower.includes(s))) return 'commercial'
+
+  // Informational: user seeking knowledge
+  if (INFORMATIONAL_SIGNALS.some(s => lower.includes(s))) return 'informational'
+
+  // Default to informational for unknown patterns
+  return 'informational'
+}
+
 // ---- Niche Matching ----
 
 function matchNiche(keyword: string): Omit<NicheConfig, 'patterns'> {
   const lower = keyword.toLowerCase()
+
+  // Check subcategories first (more precise CPC ranges)
+  for (const sub of SUBCATEGORY_CONFIGS) {
+    for (const pattern of sub.patterns) {
+      if (lower.includes(pattern.toLowerCase())) {
+        return { cpcRange: sub.cpcRange, category: sub.category, searchVolume: sub.searchVolume }
+      }
+    }
+  }
+
+  // Fall back to broad niche configs
   for (const niche of NICHE_CONFIGS) {
     for (const pattern of niche.patterns) {
       if (lower.includes(pattern)) {
@@ -214,20 +511,40 @@ function matchNiche(keyword: string): Omit<NicheConfig, 'patterns'> {
 // ---- Competition Analysis ----
 
 /**
- * Estimate competition based on keyword length, word count, and specificity.
- * Longer, more specific keywords = lower competition = easier for new blogs to rank.
+ * Estimate competition based on keyword length, word count, specificity, and intent signals.
+ *
+ * Scoring system (lower total score = lower competition):
+ *   Base score from word count / length
+ *   -1 per specificity marker (year, region, amount)
+ *   -1 for comparison/vs intent (niche, transactional)
+ *   -1 for tutorial/how-to intent (navigating a process)
  */
 function estimateCompetition(keyword: string): 'low' | 'medium' | 'high' {
   const len = keyword.replace(/\s/g, '').length
   const wordCount = keyword.split(/\s+/).length
 
-  // Very specific long-tail keywords (e.g., "2026 소상공인 대출 조건 신청방법")
-  if (wordCount >= 4 || len >= 15) return 'low'
-  // Moderate specificity (e.g., "신용대출 금리 비교")
-  if (wordCount >= 3 || len >= 10) return 'low'
-  // Short phrases (e.g., "대출 조건")
-  if (wordCount >= 2 || len >= 7) return 'medium'
-  // Head terms (e.g., "대출") - nearly impossible for new blogs
+  // Start with a base competition score (higher = more competition)
+  let score = 3  // default: high competition
+
+  // Reward keyword length / word count
+  if (wordCount >= 4 || len >= 15) score -= 2
+  else if (wordCount >= 3 || len >= 10) score -= 2
+  else if (wordCount >= 2 || len >= 7) score -= 1
+
+  // Specificity markers reduce competition (year, region, amount, etc.)
+  if (hasSpecificityMarkers(keyword)) score -= 1
+
+  // Comparison intent keywords are typically mid-tail, lower competition
+  const comparisonSignals = ['vs', '비교', '차이', '대비', '어떤게']
+  if (comparisonSignals.some(s => keyword.toLowerCase().includes(s))) score -= 1
+
+  // Tutorial / how-to intent signals long-tail specificity
+  const tutorialSignals = ['방법', '하는법', '신청', '절차', '단계', '어떻게']
+  if (tutorialSignals.some(s => keyword.includes(s))) score -= 1
+
+  if (score <= 0) return 'low'
+  if (score === 1) return 'low'
+  if (score === 2) return 'medium'
   return 'high'
 }
 
@@ -241,10 +558,23 @@ function hasActionIntent(keyword: string): boolean {
 }
 
 /**
- * Detect if keyword contains specificity markers (year, numbers, conditions).
+ * Detect if keyword contains specificity markers (year, numbers, region, conditions).
  */
 function hasSpecificityMarkers(keyword: string): boolean {
-  const markers = ['2025', '2026', '2027', 'TOP', '무료', '최신', '완벽', '단계']
+  // Year markers
+  const yearPattern = /20\d{2}/
+  if (yearPattern.test(keyword)) return true
+
+  // Amount / number markers (e.g., "3천만원", "1억", "100만원")
+  const amountPattern = /\d+(만원|억|천만|백만|원)/
+  if (amountPattern.test(keyword)) return true
+
+  // Region markers (major Korean cities/regions)
+  const regions = ['서울', '부산', '인천', '대구', '광주', '대전', '울산', '세종', '경기', '강원', '충북', '충남', '전북', '전남', '경북', '경남', '제주', '수원', '성남', '고양', '용인', '창원', '청주']
+  if (regions.some(r => keyword.includes(r))) return true
+
+  // Other specificity markers
+  const markers = ['TOP', '무료', '최신', '완벽', '단계', '초보', '전문가']
   return markers.some(m => keyword.toLowerCase().includes(m.toLowerCase()))
 }
 
@@ -265,42 +595,62 @@ const COMPETITION_FACTORS: Record<string, number> = {
   high: 0.1,    // head term: impossible for new blog → near zero
 }
 
+// AdSense CTR multipliers by search intent.
+// Transactional and commercial users are more likely to click ads.
+const INTENT_CTR_MULTIPLIERS: Record<SearchIntent, number> = {
+  transactional: 1.35,  // +35%: user ready to act, high ad relevance
+  commercial:    1.20,  // +20%: user comparing products/services
+  informational: 1.00,  // baseline: informational browsing
+  navigational:  0.70,  // -30%: user looking for a specific page, low ad CTR
+}
+
 /**
  * Calculate normalized revenue potential score (0-100).
  * Optimized for new blog SEO: heavily rewards low-competition long-tail keywords
  * with action intent, over high-volume head terms.
  *
- * Formula: baseCPC * volume * competition * (1 + bonuses), normalized to 0-100
+ * Formula: baseCPC * volume * competition * intentCTR * (1 + bonuses) * trendBoost
  *   - Action intent keywords (방법/신청/비교): +30% bonus
  *   - Long-tail (4+ words): +20% bonus
- *   - Specificity markers (year, 무료, 최신): +10% bonus
+ *   - Specificity markers (year, region, 무료, 최신): +10% bonus
+ *   - Comparison/tutorial signals: +10% bonus
  *   - Trend boost: up to +20%
+ *   - Search intent CTR factor (transactional +35%, commercial +20%, navigational -30%)
  */
 function calculateRevenuePotential(
   cpcRange: [number, number],
   volume: 'low' | 'medium' | 'high' | 'very_high',
   competition: 'low' | 'medium' | 'high',
   trendScore: number,
-  keyword: string = ''
+  keyword: string = '',
+  intent: SearchIntent = 'informational'
 ): number {
   const midCPC = (cpcRange[0] + cpcRange[1]) / 2
   const volMult = VOLUME_MULTIPLIERS[volume]
   const compFactor = COMPETITION_FACTORS[competition]
   const trendBoost = 1 + (trendScore / 100) * 0.2  // up to 20% boost from trends
+  const intentCTR = INTENT_CTR_MULTIPLIERS[intent]
 
   // Bonus multipliers for SEO-friendly keywords
   let intentBonus = 1.0
   if (keyword) {
-    if (hasActionIntent(keyword)) intentBonus += 0.3       // +30% for action keywords
+    if (hasActionIntent(keyword)) intentBonus += 0.3        // +30% for action keywords
     const wordCount = keyword.split(/\s+/).length
-    if (wordCount >= 4) intentBonus += 0.2                 // +20% for long-tail
-    else if (wordCount >= 3) intentBonus += 0.1            // +10% for medium-tail
-    if (hasSpecificityMarkers(keyword)) intentBonus += 0.1 // +10% for specificity
+    if (wordCount >= 4) intentBonus += 0.2                  // +20% for long-tail
+    else if (wordCount >= 3) intentBonus += 0.1             // +10% for medium-tail
+    if (hasSpecificityMarkers(keyword)) intentBonus += 0.1  // +10% for specificity
+
+    // Comparison and tutorial signals add specificity bonus
+    const comparisonSignals = ['vs', '비교', '차이', '대비']
+    const tutorialSignals = ['방법', '하는법', '신청', '절차']
+    if (comparisonSignals.some(s => keyword.toLowerCase().includes(s))) intentBonus += 0.1
+    if (tutorialSignals.some(s => keyword.includes(s))) intentBonus += 0.05
   }
 
-  // Max possible raw: 8.0 CPC * 1.0 vol * 1.0 comp * 1.2 trend * 1.7 intent = ~16.32
-  const raw = midCPC * volMult * compFactor * trendBoost * intentBonus
-  const score = Math.min(100, Math.round((raw / 16.5) * 100))
+  // Max possible raw with new intent CTR factor:
+  // 8.0 * 1.0 * 1.0 * 1.35 * 1.2 * 1.75 ≈ 22.68; normalize ceiling slightly higher
+  const raw = midCPC * volMult * compFactor * trendBoost * intentBonus * intentCTR
+  const score = Math.min(100, Math.round((raw / 22.5) * 100))
   return Math.max(1, score)
 }
 
@@ -353,12 +703,14 @@ export async function analyzeKeyword(
 ): Promise<KeywordAnalysis> {
   const niche = matchNiche(keyword)
   const competition = estimateCompetition(keyword)
+  const intent = classifySearchIntent(keyword)
   const revenuePotential = calculateRevenuePotential(
     niche.cpcRange,
     niche.searchVolume,
     competition,
     trendScore,
-    keyword
+    keyword,
+    intent
   )
 
   const midCPC = parseFloat(
@@ -377,6 +729,7 @@ export async function analyzeKeyword(
     suggestedTitle,
     suggestedCategory: niche.category,
     longTailVariants,
+    searchIntent: intent,
   }
 }
 

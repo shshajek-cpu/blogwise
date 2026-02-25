@@ -7,6 +7,10 @@ import { analyzeKeyword, rankTopicsByRevenue, type KeywordAnalysis } from '@/lib
 import { crawlForKeyword } from '@/lib/crawl/crawler'
 import { generateFeaturedImage, uploadImageToSupabase } from '@/lib/ai/gemini-image'
 import { loadSiteSettings, resolveApiKey, type SiteSettings } from '@/lib/settings'
+import { checkDuplicate } from '@/lib/seo/duplicate-checker'
+import { analyzeContentQuality } from '@/lib/seo/content-quality'
+import { findRelatedPosts, injectInternalLinks } from '@/lib/seo/internal-links'
+import { buildKeywordClusters, classifyContentRole } from '@/lib/seo/keyword-cluster'
 
 // Allow up to 120 seconds for content + image generation
 export const maxDuration = 120
@@ -152,7 +156,13 @@ ${categoryGuide}
 [콘텐츠 품질]
 - 구체적 정보: 금액, 기간, 자격 조건, 단계별 방법 등 수치와 팩트 포함
 - 정부지원/금융 주제: 신청 자격, 금액, 기간, 절차, 서류를 반드시 포함
-- 참고 콘텐츠가 있으면 더 낫게, 더 정확하게, 독창적으로 작성`
+- 참고 콘텐츠가 있으면 더 낫게, 더 정확하게, 독창적으로 작성
+
+[E-E-A-T 가이드라인 (Google 품질 기준)]
+- 경험(Experience): 실제 경험담, 사례, "직접 해봤더니~" 스타일로 작성
+- 전문성(Expertise): 해당 분야의 전문 용어를 적절히 사용하되 쉽게 설명
+- 권위성(Authoritativeness): 공신력 있는 출처 언급 (정부 사이트, 공식 기관 등)
+- 신뢰성(Trustworthiness): 정확한 수치, 날짜, 조건 포함. 불확실한 정보는 "확인 필요" 표기`
 }
 
 function slugify(text: string): string {
@@ -401,106 +411,162 @@ export async function POST(request: NextRequest) {
       try {
         const analysis = await analyzeKeyword(keyword, 50)
 
-        // Benchmark: crawl top articles for this keyword
-        let referenceContent: string | undefined
+        // Check for duplicate content
+        let dupCheck = { isDuplicate: false, similarPosts: [] as Array<{ id: string; title: string; slug: string; similarity: number }>, recommendation: 'proceed' as 'skip' | 'proceed' | 'modify_angle' }
         try {
-          const benchmarkArticles = await crawlForKeyword(keyword, 3)
-          if (benchmarkArticles.length > 0) {
-            referenceContent = benchmarkArticles
-              .map((a, i) => `[참고${i + 1}] ${a.title}\n${a.content.substring(0, 2000)}`)
-              .join('\n\n')
-          }
-        } catch (err) {
-          console.log(`[pipeline] Benchmark crawl failed for "${keyword}":`, err instanceof Error ? err.message : err)
+          dupCheck = await checkDuplicate(keyword, analysis.suggestedCategory)
+        } catch (dupErr) {
+          console.warn(`[pipeline] Duplicate check failed for "${keyword}":`, dupErr instanceof Error ? dupErr.message : dupErr)
         }
 
-        const { content, model, inputTokens, outputTokens, generationTimeMs } =
-          await generateContent(keyword, referenceContent, {
-            wordCount,
-            tone,
-            persona,
-            categoryStyle,
-          }, dbSettings)
-        const title = extractTitle(content, analysis.suggestedTitle)
-        const slug = slugify(title)
+        if (dupCheck.isDuplicate && dupCheck.recommendation === 'skip') {
+          errors.push(`"${keyword}" - 이미 유사한 콘텐츠가 존재합니다 (유사도: ${Math.round((dupCheck.similarPosts[0]?.similarity ?? 0) * 100)}%). 건너뜁니다.`)
+        } else {
+          let angleHint = ''
+          if (dupCheck.recommendation === 'modify_angle' && dupCheck.similarPosts.length > 0) {
+            angleHint = `\n\n참고: 이미 "${dupCheck.similarPosts[0].title}" 글이 있으므로, 다른 관점이나 최신 정보 위주로 차별화해서 작성하세요.`
+          }
 
-        // Generate featured image with Gemini (Nano Banana Pro)
-        let featuredImage: string | undefined
-        try {
-          const imgResult = await generateFeaturedImage(keyword, title, extractExcerpt(content))
-          if (imgResult.imageUrl) {
-            const uploadResult = await uploadImageToSupabase(imgResult.imageUrl, slug)
-            if (uploadResult.url) {
-              featuredImage = uploadResult.url
-            } else {
-              errors.push(`[이미지] "${keyword}" 업로드 실패: ${uploadResult.error}`)
+          // Benchmark: crawl top articles for this keyword
+          let referenceContent: string | undefined
+          try {
+            const benchmarkArticles = await crawlForKeyword(keyword, 3)
+            if (benchmarkArticles.length > 0) {
+              referenceContent = benchmarkArticles
+                .map((a, i) => `[참고${i + 1}] ${a.title}\n${a.content.substring(0, 2000)}`)
+                .join('\n\n')
             }
-          } else {
-            errors.push(`[이미지] "${keyword}" 생성 실패: ${imgResult.error ?? 'unknown'}`)
+          } catch (err) {
+            console.log(`[pipeline] Benchmark crawl failed for "${keyword}":`, err instanceof Error ? err.message : err)
           }
-        } catch (imgErr) {
-          errors.push(`[이미지] "${keyword}" 예외: ${imgErr instanceof Error ? imgErr.message : String(imgErr)}`)
+
+          if (angleHint && referenceContent) {
+            referenceContent = referenceContent + angleHint
+          } else if (angleHint) {
+            referenceContent = angleHint
+          }
+
+          const { content, model, inputTokens, outputTokens, generationTimeMs } =
+            await generateContent(keyword, referenceContent, {
+              wordCount,
+              tone,
+              persona,
+              categoryStyle,
+            }, dbSettings)
+
+          // Quality check
+          let quality = { passed: true, overall: 100, issues: [] as string[] }
+          try {
+            quality = analyzeContentQuality(content, keyword, wordCount)
+            if (!quality.passed) {
+              console.warn(`[pipeline] Quality check failed for "${keyword}": ${quality.issues.join(', ')}`)
+            }
+          } catch (qualErr) {
+            console.warn(`[pipeline] Quality check error for "${keyword}":`, qualErr instanceof Error ? qualErr.message : qualErr)
+          }
+
+          const title = extractTitle(content, analysis.suggestedTitle)
+          const slug = slugify(title)
+
+          // Inject internal links for SEO
+          let finalContent = content
+          try {
+            if (isConfigured) {
+              const categoryId = await findOrCreateCategory(analysis.suggestedCategory)
+              const relatedPosts = await findRelatedPosts(keyword, categoryId, slug)
+              if (relatedPosts.length > 0) {
+                finalContent = injectInternalLinks(content, relatedPosts)
+              }
+            }
+          } catch (linkErr) {
+            console.warn(`[pipeline] Internal link injection failed for "${keyword}":`, linkErr instanceof Error ? linkErr.message : linkErr)
+          }
+
+          // Generate featured image with Gemini (Nano Banana Pro)
+          let featuredImage: string | undefined
+          try {
+            const imgResult = await generateFeaturedImage(keyword, title, extractExcerpt(content))
+            if (imgResult.imageUrl) {
+              const uploadResult = await uploadImageToSupabase(imgResult.imageUrl, slug)
+              if (uploadResult.url) {
+                featuredImage = uploadResult.url
+              } else {
+                errors.push(`[이미지] "${keyword}" 업로드 실패: ${uploadResult.error}`)
+              }
+            } else {
+              errors.push(`[이미지] "${keyword}" 생성 실패: ${imgResult.error ?? 'unknown'}`)
+            }
+          } catch (imgErr) {
+            errors.push(`[이미지] "${keyword}" 예외: ${imgErr instanceof Error ? imgErr.message : String(imgErr)}`)
+          }
+
+          let postId = `local-${Date.now()}`
+
+          if (isConfigured) {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const db = createAdminClient() as any
+
+            // Resolve category
+            const categoryId = await findOrCreateCategory(analysis.suggestedCategory)
+
+            const { data: post, error: postError } = await db
+              .from('posts')
+              .insert({
+                title,
+                slug,
+                content: finalContent,
+                excerpt: extractExcerpt(content),
+                read_time_minutes: estimateReadTime(content),
+                featured_image: featuredImage ?? null,
+                status: 'draft',
+                seo_title: title,
+                seo_description: `${keyword}에 대한 완벽 가이드`,
+                seo_keywords: analysis.longTailVariants.slice(0, 5),
+                ai_provider: 'moonshot',
+                ai_model: model,
+                category_id: categoryId,
+              })
+              .select('id')
+              .single()
+
+            if (postError) throw postError
+            postId = post.id
+
+            await db
+              .from('ai_generation_logs')
+              .insert({
+                post_id: postId,
+                provider: 'moonshot',
+                model,
+                prompt_template: 'pipeline_auto',
+                prompt_variables: {
+                  keyword,
+                  mode: 'manual',
+                  qualityScore: quality.overall,
+                  contentRole: classifyContentRole(keyword, keyword.split(/\s+/).length),
+                  searchIntent: analysis.searchIntent,
+                  duplicateCheck: dupCheck.recommendation,
+                },
+                input_tokens: inputTokens,
+                output_tokens: outputTokens,
+                generation_time_ms: generationTimeMs,
+                status: 'completed',
+              })
+              .throwOnError()
+
+            // Revalidate pages for new content
+            revalidatePath('/')
+            revalidatePath('/posts')
+          }
+
+          generatedPosts.push({
+            id: postId,
+            title,
+            slug,
+            keyword,
+            revenueScore: analysis.revenuePotential,
+          })
         }
-
-        let postId = `local-${Date.now()}`
-
-        if (isConfigured) {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          const db = createAdminClient() as any
-
-          // Resolve category
-          const categoryId = await findOrCreateCategory(analysis.suggestedCategory)
-
-          const { data: post, error: postError } = await db
-            .from('posts')
-            .insert({
-              title,
-              slug,
-              content,
-              excerpt: extractExcerpt(content),
-              read_time_minutes: estimateReadTime(content),
-              featured_image: featuredImage ?? null,
-              status: 'draft',
-              seo_title: title,
-              seo_description: `${keyword}에 대한 완벽 가이드`,
-              seo_keywords: analysis.longTailVariants.slice(0, 5),
-              ai_provider: 'moonshot',
-              ai_model: model,
-              category_id: categoryId,
-            })
-            .select('id')
-            .single()
-
-          if (postError) throw postError
-          postId = post.id
-
-          await db
-            .from('ai_generation_logs')
-            .insert({
-              post_id: postId,
-              provider: 'moonshot',
-              model,
-              prompt_template: 'pipeline_auto',
-              prompt_variables: { keyword, mode: 'manual' },
-              input_tokens: inputTokens,
-              output_tokens: outputTokens,
-              generation_time_ms: generationTimeMs,
-              status: 'completed',
-            })
-            .throwOnError()
-
-          // Revalidate pages for new content
-          revalidatePath('/')
-          revalidatePath('/posts')
-        }
-
-        generatedPosts.push({
-          id: postId,
-          title,
-          slug,
-          keyword,
-          revenueScore: analysis.revenuePotential,
-        })
       } catch (err) {
         errors.push(
           `"${keyword}" 생성 실패: ${err instanceof Error ? err.message : (typeof err === 'object' && err !== null ? JSON.stringify(err) : String(err))}`
@@ -569,8 +635,33 @@ export async function POST(request: NextRequest) {
       // Pick from top candidates with randomization to avoid always selecting the same ones
       // Take a wider pool (top 3x count) and randomly sample from it
       const pool = (fresh.length > 0 ? fresh : ranked).slice(0, count * 3)
+
+      // Build keyword clusters for topical authority
+      const clusters = buildKeywordClusters(
+        pool.map(r => ({ keyword: r.keyword, category: r.suggestedCategory, revenuePotential: r.revenuePotential }))
+      )
+
+      // Prefer selecting keywords from different clusters for content variety
+      const seenClusterPillars = new Set<string>()
+      const diversePool: KeywordAnalysis[] = []
+      const remainderPool: KeywordAnalysis[] = []
+      for (const item of pool) {
+        const cluster = clusters.find(c =>
+          c.pillarKeyword === item.keyword || c.clusterKeywords.includes(item.keyword)
+        )
+        const pillarKey = cluster?.pillarKeyword ?? item.keyword
+        if (!seenClusterPillars.has(pillarKey)) {
+          seenClusterPillars.add(pillarKey)
+          diversePool.push(item)
+        } else {
+          remainderPool.push(item)
+        }
+      }
+      // Fill up to pool size with remainder if diverse pool is smaller
+      const reorderedPool = [...diversePool, ...remainderPool]
+
       const topTopics: KeywordAnalysis[] = []
-      const poolCopy = [...pool]
+      const poolCopy = [...reorderedPool]
       for (let i = 0; i < Math.min(count, poolCopy.length); i++) {
         // Weighted random: higher-ranked items get higher probability
         const weights = poolCopy.map((_, idx) => Math.max(1, poolCopy.length - idx))
@@ -587,6 +678,24 @@ export async function POST(request: NextRequest) {
 
       for (const analysis of topTopics) {
         try {
+          // Check for duplicate content
+          let dupCheck = { isDuplicate: false, similarPosts: [] as Array<{ id: string; title: string; slug: string; similarity: number }>, recommendation: 'proceed' as 'skip' | 'proceed' | 'modify_angle' }
+          try {
+            dupCheck = await checkDuplicate(analysis.keyword, analysis.suggestedCategory)
+          } catch (dupErr) {
+            console.warn(`[pipeline] Duplicate check failed for "${analysis.keyword}":`, dupErr instanceof Error ? dupErr.message : dupErr)
+          }
+
+          if (dupCheck.isDuplicate && dupCheck.recommendation === 'skip') {
+            errors.push(`"${analysis.keyword}" - 이미 유사한 콘텐츠가 존재합니다 (유사도: ${Math.round((dupCheck.similarPosts[0]?.similarity ?? 0) * 100)}%). 건너뜁니다.`)
+            continue
+          }
+
+          let angleHint = ''
+          if (dupCheck.recommendation === 'modify_angle' && dupCheck.similarPosts.length > 0) {
+            angleHint = `\n\n참고: 이미 "${dupCheck.similarPosts[0].title}" 글이 있으므로, 다른 관점이나 최신 정보 위주로 차별화해서 작성하세요.`
+          }
+
           // Benchmark: crawl top articles for this keyword
           let referenceContent: string | undefined
           try {
@@ -600,6 +709,12 @@ export async function POST(request: NextRequest) {
             console.log(`[pipeline] Benchmark crawl failed for "${analysis.keyword}":`, err instanceof Error ? err.message : err)
           }
 
+          if (angleHint && referenceContent) {
+            referenceContent = referenceContent + angleHint
+          } else if (angleHint) {
+            referenceContent = angleHint
+          }
+
           const { content, model, inputTokens, outputTokens, generationTimeMs } =
             await generateContent(analysis.keyword, referenceContent, {
               wordCount,
@@ -607,8 +722,34 @@ export async function POST(request: NextRequest) {
               persona,
               categoryStyle,
             }, dbSettings)
+
+          // Quality check
+          let quality = { passed: true, overall: 100, issues: [] as string[] }
+          try {
+            quality = analyzeContentQuality(content, analysis.keyword, wordCount)
+            if (!quality.passed) {
+              console.warn(`[pipeline] Quality check failed for "${analysis.keyword}": ${quality.issues.join(', ')}`)
+            }
+          } catch (qualErr) {
+            console.warn(`[pipeline] Quality check error for "${analysis.keyword}":`, qualErr instanceof Error ? qualErr.message : qualErr)
+          }
+
           const title = extractTitle(content, analysis.suggestedTitle)
           const slug = slugify(title)
+
+          // Inject internal links for SEO
+          let finalContent = content
+          try {
+            if (isConfigured) {
+              const categoryId = await findOrCreateCategory(analysis.suggestedCategory)
+              const relatedPosts = await findRelatedPosts(analysis.keyword, categoryId, slug)
+              if (relatedPosts.length > 0) {
+                finalContent = injectInternalLinks(content, relatedPosts)
+              }
+            }
+          } catch (linkErr) {
+            console.warn(`[pipeline] Internal link injection failed for "${analysis.keyword}":`, linkErr instanceof Error ? linkErr.message : linkErr)
+          }
 
           // Generate featured image with Gemini (Nano Banana Pro)
           let featuredImage: string | undefined
@@ -642,7 +783,7 @@ export async function POST(request: NextRequest) {
               .insert({
                 title,
                 slug,
-                content,
+                content: finalContent,
                 excerpt: extractExcerpt(content),
                 read_time_minutes: estimateReadTime(content),
                 featured_image: featuredImage ?? null,
@@ -668,7 +809,14 @@ export async function POST(request: NextRequest) {
                 provider: 'moonshot',
                 model,
                 prompt_template: 'pipeline_auto',
-                prompt_variables: { keyword: analysis.keyword, mode: 'auto' },
+                prompt_variables: {
+                  keyword: analysis.keyword,
+                  mode: 'auto',
+                  qualityScore: quality.overall,
+                  contentRole: classifyContentRole(analysis.keyword, analysis.keyword.split(/\s+/).length),
+                  searchIntent: analysis.searchIntent,
+                  duplicateCheck: dupCheck.recommendation,
+                },
                 input_tokens: inputTokens,
                 output_tokens: outputTokens,
                 generation_time_ms: generationTimeMs,
