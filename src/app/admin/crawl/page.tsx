@@ -77,12 +77,6 @@ const platformBadge: Record<string, string> = {
   "외부 블로그": "bg-gray-100 text-gray-600",
 };
 
-const sourceBadge: Record<string, { label: string; color: string }> = {
-  google: { label: "Google", color: "bg-blue-100 text-blue-700" },
-  naver: { label: "Naver", color: "bg-green-100 text-green-700" },
-  daum: { label: "Daum", color: "bg-yellow-100 text-yellow-700" },
-  evergreen: { label: "Evergreen", color: "bg-emerald-100 text-emerald-700" },
-};
 
 const keywordTypeBadge: Record<string, { label: string; color: string }> = {
   evergreen: { label: "연중 수요", color: "bg-emerald-50 text-emerald-700 border-emerald-200" },
@@ -276,13 +270,16 @@ export default function CrawlPage() {
       if (!res.ok) throw new Error("trends fetch failed");
       const data = await res.json();
       const apiTrends = data.trends ?? [];
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const analyzed: any[] = data.analyzed ?? [];
 
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const analysisMap = new Map<string, any>();
       for (const a of analyzed) {
         analysisMap.set(a.keyword, a);
       }
 
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const merged = apiTrends.map((t: any) => {
         const analysis = analysisMap.get(t.keyword);
         const revNum = analysis?.revenuePotential ?? 0;

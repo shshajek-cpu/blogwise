@@ -41,21 +41,21 @@ export default function AnalyticsPage() {
   const period = periodMap[dateRange] as '7d' | '30d' | '90d';
 
   useEffect(() => {
-    setLoading(true);
-    fetch(`/api/analytics?period=${period}`)
-      .then((res) => {
+    let cancelled = false;
+    const fetchData = async () => {
+      try {
+        const res = await fetch(`/api/analytics?period=${period}`);
         if (!res.ok) throw new Error('Failed to fetch');
-        return res.json();
-      })
-      .then((data: AnalyticsData) => {
-        setAnalytics(data);
-      })
-      .catch(() => {
-        setAnalytics(null);
-      })
-      .finally(() => {
-        setLoading(false);
-      });
+        const data: AnalyticsData = await res.json();
+        if (!cancelled) setAnalytics(data);
+      } catch {
+        if (!cancelled) setAnalytics(null);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    };
+    fetchData();
+    return () => { cancelled = true; };
   }, [period]);
 
   // API returns { date, views } but charts expect { day, views } — normalize the key name
