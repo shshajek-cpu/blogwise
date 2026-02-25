@@ -258,9 +258,19 @@ export default async function PostDetailPage({ params }: PageProps) {
             </div>
 
             {/* Featured Image */}
-            <div className="aspect-video rounded-2xl overflow-hidden bg-gradient-to-br from-primary-300 via-primary-500 to-primary-700 mb-6 flex items-center justify-center">
-              <span className="text-white/20 text-9xl font-black select-none">B</span>
-            </div>
+            {post.thumbnail ? (
+              <div className="aspect-video rounded-2xl overflow-hidden mb-6">
+                <img
+                  src={post.thumbnail}
+                  alt={post.title}
+                  className="w-full h-full object-cover"
+                />
+              </div>
+            ) : (
+              <div className="aspect-video rounded-2xl overflow-hidden bg-gradient-to-br from-primary-300 via-primary-500 to-primary-700 mb-6 flex items-center justify-center">
+                <span className="text-white/20 text-9xl font-black select-none">B</span>
+              </div>
+            )}
 
             {/* Share Buttons */}
             <div className="flex items-center justify-between flex-wrap gap-4 pb-6 border-b border-gray-100">

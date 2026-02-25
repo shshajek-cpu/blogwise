@@ -62,7 +62,14 @@ function buildSystemPrompt(seoKeyword: string, wordCount: number, tone: ToneType
 
 [SEO]
 - "${seoKeyword}"를 제목과 첫 문단에 포함
-- 키워드 밀도 1.5~2.5% (자연스럽게)`
+- 키워드 밀도 1.5~2.5% (자연스럽게)
+
+[참고 링크 안내]
+- 본문에서 독자에게 유용한 외부 링크를 2~4개 자연스럽게 포함하세요
+- 정부지원/금융 주제: 정부24(gov.kr), 고용노동부, 복지로, 국민건강보험 등 공식 사이트 링크
+- 기술/개발 주제: 공식 문서, GitHub 레포지토리, MDN 등 신뢰할 수 있는 기술 문서 링크
+- 링크 형식: 마크다운 [텍스트](URL) 형태로 자연스러운 문맥 안에 배치
+- 존재하지 않는 URL이나 추측 URL은 절대 사용하지 마세요. 확실한 공식 사이트만 링크하세요`
 }
 
 function slugify(text: string): string {
