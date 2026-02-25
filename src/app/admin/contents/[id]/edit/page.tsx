@@ -16,6 +16,7 @@ interface PostData {
   seo_keywords: string[];
   ai_provider: string;
   ai_model: string;
+  featured_image?: string;
   created_at: string;
   updated_at: string;
   category?: { id: string; name: string } | null;
@@ -227,6 +228,36 @@ export default function EditPostPage({ params }: { params: Promise<{ id: string 
         </div>
       </div>
 
+      {/* Featured Image / AI Image Info */}
+      <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-6 space-y-5">
+        <h2 className="text-lg font-semibold text-gray-900">썸네일 이미지</h2>
+        {post.featured_image ? (
+          <div className="space-y-3">
+            <div className="relative aspect-video max-w-md rounded-lg overflow-hidden border border-gray-200">
+              <img
+                src={post.featured_image}
+                alt={title}
+                className="w-full h-full object-cover"
+              />
+            </div>
+            <div className="flex items-center gap-2 text-xs text-gray-500">
+              <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              <span>Gemini (gemini-3-pro-image-preview) 카드뉴스 스타일로 자동 생성됨</span>
+            </div>
+          </div>
+        ) : (
+          <div className="flex flex-col items-center justify-center py-8 text-gray-400 border-2 border-dashed border-gray-200 rounded-lg">
+            <svg xmlns="http://www.w3.org/2000/svg" className="w-12 h-12 mb-2 text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+            </svg>
+            <p className="text-sm">썸네일 이미지가 없습니다</p>
+            <p className="text-xs mt-1">파이프라인으로 생성하면 Gemini가 자동으로 카드뉴스 이미지를 생성합니다</p>
+          </div>
+        )}
+      </div>
+
       {/* SEO Section */}
       <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-6 space-y-5">
         <h2 className="text-lg font-semibold text-gray-900">SEO 설정</h2>
@@ -251,7 +282,22 @@ export default function EditPostPage({ params }: { params: Promise<{ id: string 
 
         {/* Meta info */}
         <div className="pt-3 border-t border-gray-100 flex flex-wrap gap-4 text-xs text-gray-400">
-          {post.ai_provider && <span>AI: {post.ai_provider} / {post.ai_model}</span>}
+          {post.ai_provider && (
+            <span className="inline-flex items-center gap-1">
+              <svg xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+              </svg>
+              글 작성: {post.ai_provider} / {post.ai_model}
+            </span>
+          )}
+          {post.featured_image && (
+            <span className="inline-flex items-center gap-1">
+              <svg xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+              </svg>
+              이미지 생성: Gemini (gemini-3-pro-image-preview)
+            </span>
+          )}
           <span>생성일: {new Date(post.created_at).toLocaleDateString("ko-KR")}</span>
           {post.updated_at && <span>수정일: {new Date(post.updated_at).toLocaleDateString("ko-KR")}</span>}
         </div>

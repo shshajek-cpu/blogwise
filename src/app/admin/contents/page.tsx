@@ -12,6 +12,9 @@ interface Post {
   createdAt: string;
   views: number;
   content?: string;
+  featured_image?: string;
+  ai_provider?: string;
+  ai_model?: string;
 }
 
 const mockPosts: Post[] = [
@@ -98,6 +101,9 @@ export default function ContentsPage() {
           status: string;
           created_at: string;
           view_count?: number;
+          featured_image?: string;
+          ai_provider?: string;
+          ai_model?: string;
         }) => ({
           id: p.id,
           title: p.title,
@@ -107,6 +113,9 @@ export default function ContentsPage() {
           status: (statusMap[p.status] ?? p.status) as Post["status"],
           createdAt: p.created_at ? p.created_at.slice(0, 10) : "",
           views: p.view_count ?? 0,
+          featured_image: p.featured_image,
+          ai_provider: p.ai_provider,
+          ai_model: p.ai_model,
         }));
         setPosts(mapped);
         setTotalCount(data.total ?? mapped.length);
@@ -384,6 +393,7 @@ export default function ContentsPage() {
                   />
                 </th>
                 <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">제목</th>
+                <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider hidden md:table-cell">썸네일/AI</th>
                 <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider hidden sm:table-cell">카테고리</th>
                 <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">상태</th>
                 <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider hidden md:table-cell">작성일</th>
@@ -397,6 +407,7 @@ export default function ContentsPage() {
                   <tr key={i} className="animate-pulse">
                     <td className="px-4 py-3"><div className="w-4 h-4 bg-gray-200 rounded" /></td>
                     <td className="px-4 py-3"><div className="h-4 bg-gray-200 rounded w-48" /></td>
+                    <td className="px-4 py-3 hidden md:table-cell"><div className="h-10 w-10 bg-gray-200 rounded" /></td>
                     <td className="px-4 py-3 hidden sm:table-cell"><div className="h-4 bg-gray-200 rounded w-16" /></td>
                     <td className="px-4 py-3"><div className="h-4 bg-gray-200 rounded w-12" /></td>
                     <td className="px-4 py-3 hidden md:table-cell"><div className="h-4 bg-gray-200 rounded w-20" /></td>
@@ -426,6 +437,25 @@ export default function ContentsPage() {
                             <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
                           </svg>
                           <p className="font-medium text-gray-900 truncate max-w-[250px]">{post.title}</p>
+                        </div>
+                      </td>
+                      <td className="px-4 py-3 hidden md:table-cell">
+                        <div className="flex items-center gap-2">
+                          {post.featured_image ? (
+                            <img src={post.featured_image} alt="" className="w-10 h-10 rounded object-cover border border-gray-200" />
+                          ) : (
+                            <div className="w-10 h-10 rounded bg-gray-100 flex items-center justify-center">
+                              <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4 text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                              </svg>
+                            </div>
+                          )}
+                          {post.ai_provider && (
+                            <div className="flex flex-col">
+                              <span className="text-xs text-gray-500">{post.ai_provider}</span>
+                              <span className="text-xs text-gray-400">{post.ai_model}</span>
+                            </div>
+                          )}
                         </div>
                       </td>
                       <td className="px-4 py-3 hidden sm:table-cell">
@@ -467,7 +497,7 @@ export default function ContentsPage() {
                     </tr>
                     {expandedId === post.id && (
                       <tr key={`${post.id}-expanded`} className="bg-gray-50">
-                        <td colSpan={7} className="px-6 py-4">
+                        <td colSpan={8} className="px-6 py-4">
                           <div className="space-y-3 max-w-3xl">
                             <div>
                               <label className="block text-xs font-medium text-gray-500 mb-1">요약</label>

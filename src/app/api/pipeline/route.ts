@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { revalidatePath } from 'next/cache'
 import { createClient, createAdminClient } from '@/lib/supabase/server'
 import { getAllTrends } from '@/lib/crawl/trends'
 import { analyzeKeyword, rankTopicsByRevenue, type KeywordAnalysis } from '@/lib/crawl/analyzer'
@@ -167,6 +168,45 @@ function slugify(text: string): string {
 function extractTitle(content: string, fallback: string): string {
   const match = content.match(/^#\s+(.+)$/m)
   return match ? match[1].trim() : fallback
+}
+
+async function findOrCreateCategory(categoryName: string): Promise<string | null> {
+  if (!isConfigured || !categoryName) return null
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const db = createAdminClient() as any
+
+    // Try to find existing category
+    const slug = categoryName.toLowerCase().replace(/[^\w\s가-힣-]/g, '').replace(/\s+/g, '-').trim()
+    const { data: existing } = await db
+      .from('categories')
+      .select('id')
+      .eq('slug', slug)
+      .single()
+
+    if (existing) return existing.id
+
+    // Create new category
+    const { data: newCat, error } = await db
+      .from('categories')
+      .insert({
+        name: categoryName,
+        slug,
+        description: `${categoryName} 관련 글`,
+        post_count: 0,
+      })
+      .select('id')
+      .single()
+
+    if (error) {
+      console.log(`[pipeline] Category create failed for "${categoryName}":`, error.message)
+      return null
+    }
+    return newCat.id
+  } catch (err) {
+    console.log(`[pipeline] findOrCreateCategory error:`, err instanceof Error ? err.message : err)
+    return null
+  }
 }
 
 interface GenerateResult {
@@ -390,6 +430,9 @@ export async function POST(request: NextRequest) {
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           const db = createAdminClient() as any
 
+          // Resolve category
+          const categoryId = await findOrCreateCategory(analysis.suggestedCategory)
+
           const { data: post, error: postError } = await db
             .from('posts')
             .insert({
@@ -405,6 +448,7 @@ export async function POST(request: NextRequest) {
               seo_keywords: analysis.longTailVariants.slice(0, 5),
               ai_provider: 'moonshot',
               ai_model: model,
+              category_id: categoryId,
             })
             .select('id')
             .single()
@@ -426,6 +470,10 @@ export async function POST(request: NextRequest) {
               status: 'completed',
             })
             .throwOnError()
+
+          // Revalidate pages for new content
+          revalidatePath('/')
+          revalidatePath('/posts')
         }
 
         generatedPosts.push({
@@ -568,6 +616,9 @@ export async function POST(request: NextRequest) {
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             const db = createAdminClient() as any
 
+            // Resolve category
+            const categoryId = await findOrCreateCategory(analysis.suggestedCategory)
+
             const { data: post, error: postError } = await db
               .from('posts')
               .insert({
@@ -583,6 +634,7 @@ export async function POST(request: NextRequest) {
                 seo_keywords: analysis.longTailVariants.slice(0, 5),
                 ai_provider: 'moonshot',
                 ai_model: model,
+                category_id: categoryId,
                 // userId available for future author tracking
               })
               .select('id')
@@ -605,6 +657,10 @@ export async function POST(request: NextRequest) {
                 status: 'completed',
               })
               .throwOnError()
+
+            // Revalidate pages for new content
+            revalidatePath('/')
+            revalidatePath('/posts')
           }
 
           generatedPosts.push({

@@ -4,7 +4,7 @@ import AdSlot from "@/components/blog/AdSlot";
 import CategoryNav from "@/components/blog/CategoryNav";
 import { getCategories, getPublishedPosts } from "@/lib/supabase/queries";
 
-export const revalidate = 3600;
+export const revalidate = 60;
 
 export async function generateStaticParams() {
   return [];

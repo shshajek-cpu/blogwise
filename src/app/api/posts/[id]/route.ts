@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { revalidatePath } from 'next/cache'
 import { createAdminClient } from '@/lib/supabase/server'
 
 const isConfigured = !!(
@@ -86,6 +87,16 @@ export async function PATCH(
         { error: '포스트 업데이트 중 오류가 발생했습니다.' },
         { status: 500 }
       )
+    }
+
+    // Revalidate static pages when post is published or status changes
+    if (body.status === 'published' || body.status) {
+      revalidatePath('/')
+      revalidatePath('/posts')
+      revalidatePath(`/posts/${post.slug}`)
+      if (post.category?.slug) {
+        revalidatePath(`/category/${post.category.slug}`)
+      }
     }
 
     return NextResponse.json({ post })

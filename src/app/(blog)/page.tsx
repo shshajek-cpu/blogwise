@@ -7,7 +7,7 @@ import CategoryNav from "@/components/blog/CategoryNav";
 import PageViewTracker from "@/components/blog/PageViewTracker";
 import { getPublishedPosts, getCategories } from "@/lib/supabase/queries";
 
-export const revalidate = 3600;
+export const revalidate = 60;
 
 export default async function BlogHomePage() {
   const [{ posts }, categories] = await Promise.all([
