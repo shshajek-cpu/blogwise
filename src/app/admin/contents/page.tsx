@@ -476,7 +476,12 @@ export default function ContentsPage() {
                       <td className="px-4 py-3 hidden md:table-cell">
                         <div className="flex items-center gap-2">
                           {post.featured_image ? (
-                            <img src={post.featured_image} alt="" className="w-10 h-10 rounded object-cover border border-gray-200" />
+                            <div className="relative group/thumb">
+                              <img src={post.featured_image} alt="" className="w-10 h-10 rounded object-cover border border-gray-200 cursor-pointer" />
+                              <div className="hidden group-hover/thumb:block absolute z-50 left-12 top-0 p-1 bg-white rounded-lg shadow-xl border border-gray-200">
+                                <img src={post.featured_image} alt={post.title} className="w-64 h-auto rounded" />
+                              </div>
+                            </div>
                           ) : (
                             <div className="w-10 h-10 rounded bg-gray-100 flex items-center justify-center">
                               <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4 text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
