@@ -19,7 +19,8 @@ interface PageProps {
 }
 
 export async function generateMetadata({ params }: PageProps) {
-  const { slug } = await params;
+  const { slug: rawSlug } = await params;
+  const slug = (() => { try { return decodeURIComponent(rawSlug) } catch { return rawSlug } })();
   const post = await getPostBySlug(slug);
   if (!post) return { title: "포스트를 찾을 수 없습니다" };
   return {
@@ -184,7 +185,9 @@ function renderMarkdown(content: string): React.ReactNode[] {
 }
 
 export default async function PostDetailPage({ params }: PageProps) {
-  const { slug } = await params;
+  const { slug: rawSlug } = await params;
+  // Decode URI-encoded Korean slugs from URL path
+  const slug = (() => { try { return decodeURIComponent(rawSlug) } catch { return rawSlug } })();
 
   const post = await getPostBySlug(slug);
   if (!post) notFound();
